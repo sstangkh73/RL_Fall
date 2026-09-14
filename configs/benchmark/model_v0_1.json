@@ -1,0 +1,44 @@
+{
+  "status": "development_locked_for_P0_P2_only",
+  "biofidelity_claim": false,
+  "morphology": {
+    "nominal_height_m": 1.2,
+    "total_mass_kg": 20.0,
+    "part_masses_kg": {
+      "torso": 8.0,
+      "head": 2.0,
+      "left_upper_arm": 1.0,
+      "left_lower_arm": 1.0,
+      "right_upper_arm": 1.0,
+      "right_lower_arm": 1.0,
+      "left_thigh": 1.5,
+      "left_shin": 1.5,
+      "right_thigh": 1.5,
+      "right_shin": 1.5
+    }
+  },
+  "actuation": {
+    "action_semantics": "normalized joint-position target followed by PD",
+    "kp": 55.0,
+    "kd": 3.0,
+    "torque_limits_nm": [35, 20, 35, 20, 60, 45, 60, 45],
+    "joint_order": [
+      "left_shoulder", "left_elbow", "right_shoulder", "right_elbow",
+      "left_hip", "left_knee", "right_hip", "right_knee"
+    ]
+  },
+  "damage_proxy": {
+    "parts": ["head", "torso", "left_arm", "right_arm", "left_leg", "right_leg"],
+    "load_threshold_n_each": 250.0,
+    "rate_per_second": 0.12,
+    "exponent": 2.0,
+    "aggregation": "maximum contact-force magnitude per part per physics substep",
+    "formula": "rate * max(0, load/threshold - 1)^exponent * physics_dt",
+    "validated_human_injury_model": false
+  },
+  "contact": {
+    "friction": [0.8, 0.02, 0.002],
+    "solref": [0.02, 1.0],
+    "solimp": [0.9, 0.95, 0.001]
+  }
+}

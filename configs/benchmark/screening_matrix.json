@@ -1,0 +1,12 @@
+{
+  "stage": "P2_screening",
+  "condition": "B",
+  "devices": ["cpu", "cuda"],
+  "environment_counts": [1, 4, 8],
+  "conditional_environment_count": 16,
+  "memory_gate_min_available_gib": 3,
+  "cpu_learner_threads_diagnostic": [1, 2, 4],
+  "paired_seed": 22001,
+  "notes": "16 environments may only be added after the memory gate. P2 is diagnostic, not confirmation."
+}
+

@@ -1,0 +1,14 @@
+.venv/
+.uv-cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+results/benchmark/*
+!results/benchmark/.gitkeep
+
+results/benchmark_3d/*
+!results/benchmark_3d/.gitkeep
+tmp/
+proposal/
+pytest-cache-files-*/
+

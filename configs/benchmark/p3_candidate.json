@@ -1,0 +1,23 @@
+{
+  "environment_counts": [
+    1
+  ],
+  "estimate_limit": "A/C/D may have different contact and compute loads",
+  "estimated_hours_from_P2_condition_B": 4.490249967335646,
+  "learner_threads": 4,
+  "measured_updates": 100,
+  "paired_seeds": [
+    33001,
+    33002,
+    33003
+  ],
+  "primary_environment_count": 1,
+  "resource_preflight_reasons": [
+    "available RAM 0.84 GiB is below the 3 GiB gate",
+    "pre-existing GPU utilization is 34%"
+  ],
+  "run_count": 24,
+  "source_P2_selection": "results\\benchmark\\P2_selection.json",
+  "status": "hold",
+  "warmup_updates": 10
+}

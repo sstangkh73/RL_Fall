@@ -1,0 +1,56 @@
+{
+  "status": "development_locked_for_3d_P0_P3_only",
+  "biofidelity_claim": false,
+  "geometry": "three-dimensional free root with articulated limbs",
+  "morphology": {
+    "nominal_height_m": 1.2,
+    "total_mass_kg": 20.0,
+    "part_masses_kg": {
+      "torso": 8.0,
+      "head": 2.0,
+      "left_upper_arm": 1.0,
+      "left_lower_arm": 1.0,
+      "right_upper_arm": 1.0,
+      "right_lower_arm": 1.0,
+      "left_thigh": 1.5,
+      "left_shin": 1.5,
+      "right_thigh": 1.5,
+      "right_shin": 1.5
+    }
+  },
+  "actuation": {
+    "action_semantics": "normalized joint-position target followed by PD",
+    "kp": 55.0,
+    "kd": 3.0,
+    "torque_limits_nm": [
+      35, 25, 18, 20, 35, 25, 18, 20,
+      60, 40, 30, 45, 60, 40, 30, 45
+    ],
+    "joint_order": [
+      "left_shoulder_flex", "left_shoulder_abduct", "left_shoulder_twist", "left_elbow",
+      "right_shoulder_flex", "right_shoulder_abduct", "right_shoulder_twist", "right_elbow",
+      "left_hip_flex", "left_hip_abduct", "left_hip_twist", "left_knee",
+      "right_hip_flex", "right_hip_abduct", "right_hip_twist", "right_knee"
+    ]
+  },
+  "disturbance": {
+    "direction": "uniform horizontal angle",
+    "dimensionless_impulse_range": [0.0, 0.45],
+    "duration_seconds": [0.05, 0.15],
+    "application_point": "random torso-local 3D offset"
+  },
+  "damage_proxy": {
+    "parts": ["head", "torso", "left_arm", "right_arm", "left_leg", "right_leg"],
+    "load_threshold_n_each": 250.0,
+    "rate_per_second": 0.12,
+    "exponent": 2.0,
+    "aggregation": "maximum contact-force magnitude per part per physics substep",
+    "formula": "rate * max(0, load/threshold - 1)^exponent * physics_dt",
+    "validated_human_injury_model": false
+  },
+  "contact": {
+    "friction": [0.8, 0.02, 0.002],
+    "solref": [0.02, 1.0],
+    "solimp": [0.9, 0.95, 0.001]
+  }
+}

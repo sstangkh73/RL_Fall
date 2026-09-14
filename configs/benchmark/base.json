@@ -1,0 +1,22 @@
+{
+  "physics_backend": "MuJoCo CPU",
+  "control_hz": 50,
+  "physics_hz": 500,
+  "episode_seconds": 30,
+  "total_rollout_transitions": 2048,
+  "policy_layers": [128, 128],
+  "learning_rate": 0.0003,
+  "clip_range": 0.2,
+  "gae_lambda": 0.95,
+  "gamma": 0.999,
+  "batch_size": 512,
+  "n_epochs": 10,
+  "float_precision": "float32",
+  "amp": false,
+  "torch_compile": false,
+  "damage_penalty_scale": 1.0,
+  "warmup_updates": 10,
+  "screening_updates": 20,
+  "confirmation_updates": 100
+}
+
