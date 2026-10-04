@@ -5,11 +5,11 @@
 set -euo pipefail
 
 SEED="${1:-61001}"
-UPDATES="${2:-1500}"
+UPDATES="${2:-300}"
 shift $(( $# > 2 ? 2 : $# ))
 LEVELS=("${@:-0.2 0.3 0.45}")
 read -r -a LEVELS <<< "${LEVELS[*]}"
-EVERY=250
+EVERY="${EVERY:-25}"  # balance updates are 16,384 transitions each
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="${PY:-$HOME/venvs/rl_fall/bin/python}"
 OUT="results/stage1/seed_${SEED}"

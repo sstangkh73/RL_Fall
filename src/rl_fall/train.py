@@ -37,6 +37,12 @@ from .telemetry import ResourceSampler
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 TOTAL_ROLLOUT_TRANSITIONS = 2048
+# Curriculum (non-benchmark) PPO settings. With 2,048-transition updates, 10 epochs
+# and lr 3e-4, stage-1 balance improved for ~250 updates and then degraded.
+CURRICULUM_PPO = {
+    "rollout_transitions": 16384, "learning_rate": 1e-4, "batch_size": 2048,
+    "n_epochs": 5, "target_kl": 0.02,
+}
 
 
 def _sha256(path: Path) -> str:
@@ -155,10 +161,13 @@ def synchronize(device: str) -> None:
 def create_model(
     env: VecEnv, device: str, seed: int, n_steps: int, network_width: int = 128,
     log_std_init: float = 0.0, gamma: float = 0.999,
+    learning_rate: float = 3e-4, batch_size: int = 512, n_epochs: int = 10,
+    target_kl: float | None = None,
 ) -> PPO:
     return PPO(
         "MlpPolicy", env, device=device, seed=seed,
-        learning_rate=3e-4, n_steps=n_steps, batch_size=512, n_epochs=10,
+        learning_rate=learning_rate, n_steps=n_steps, batch_size=batch_size,
+        n_epochs=n_epochs, target_kl=target_kl,
         gamma=gamma, gae_lambda=0.95, clip_range=0.2,
         policy_kwargs={
             "net_arch": {
@@ -268,7 +277,9 @@ def run_training(
     norm_reward = mode != "task"
     if network_width is None:
         network_width = 256 if environment == "3d" else 128
-    if TOTAL_ROLLOUT_TRANSITIONS % n_envs:
+    rollout = (TOTAL_ROLLOUT_TRANSITIONS if mode == "task"
+               else CURRICULUM_PPO["rollout_transitions"])
+    if rollout % n_envs:
         raise ValueError("n_envs must divide 2048")
     if device == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA requested but torch.cuda.is_available() is false")
@@ -276,7 +287,7 @@ def run_training(
         raise ValueError("checkpoint evaluation requires evaluation_scenarios > 0")
     torch.set_num_threads(threads)
     torch.set_num_interop_threads(1)
-    n_steps = TOTAL_ROLLOUT_TRANSITIONS // n_envs
+    n_steps = rollout // n_envs
     run_id = (
         f"{environment}_{condition}_env{n_envs}_{wrapper}_{device}_seed{seed}_t{threads}_"
         f"{time.strftime('%Y%m%dT%H%M%S')}"
@@ -309,7 +320,11 @@ def run_training(
             # Curriculum modes start with smaller exploration noise (std ~0.37).
             model = create_model(env, device, seed, n_steps, network_width,
                                  log_std_init=0.0 if mode == "task" else -1.0,
-                                 gamma=gamma)
+                                 gamma=gamma,
+                                 **({} if mode == "task" else {
+                                     key: CURRICULUM_PPO[key] for key in
+                                     ("learning_rate", "batch_size", "n_epochs", "target_kl")
+                                 }))
             weights_hash = load_or_create_initial_weights(
                 model, _initial_weights_path(
                     output_dir, seed, n_envs, environment, network_width, mode
@@ -351,7 +366,7 @@ def run_training(
                 synchronize(device)
                 begin = time.perf_counter()
                 callback = UpdateMetricsCallback()
-                model.learn(total_timesteps=TOTAL_ROLLOUT_TRANSITIONS,
+                model.learn(total_timesteps=rollout,
                             reset_num_timesteps=False, progress_bar=False,
                             callback=callback)
                 synchronize(device)
@@ -359,9 +374,9 @@ def run_training(
                 update_rows.append({
                     "phase": phase, "phase_update": phase_update,
                     "global_update": len(update_rows),
-                    "transitions": TOTAL_ROLLOUT_TRANSITIONS,
+                    "transitions": rollout,
                     "seconds": elapsed,
-                    "transitions_per_second": TOTAL_ROLLOUT_TRANSITIONS / elapsed,
+                    "transitions_per_second": rollout / elapsed,
                     "reward_task_sum": callback.task_reward,
                     "reward_damage_penalty_sum": callback.damage_penalty,
                     "task_successes": callback.task_successes,
@@ -409,9 +424,9 @@ def run_training(
             "warmup_seconds": sum(float(row["seconds"]) for row in update_rows
                                   if row["phase"] == "warmup"),
             "steady_seconds": sum(steady),
-            "steady_transitions": measured_updates * TOTAL_ROLLOUT_TRANSITIONS,
+            "steady_transitions": measured_updates * rollout,
             "steady_transitions_per_second": (
-                measured_updates * TOTAL_ROLLOUT_TRANSITIONS / sum(steady) if steady else None
+                measured_updates * rollout / sum(steady) if steady else None
             ),
             "save_seconds": save_seconds, "evaluation": evaluation,
             "paired_initial_weights_sha256": weights_hash,
@@ -439,7 +454,7 @@ def run_training(
             "learner_threads": threads, "seed": seed,
             "warmup_updates": warmup_updates, "measured_updates": measured_updates,
             "checkpoint_updates": list(checkpoint_updates),
-            "total_rollout_transitions": TOTAL_ROLLOUT_TRANSITIONS,
+            "total_rollout_transitions": rollout,
             "python": platform.python_version(), "platform": platform.platform(),
             "logical_processors": os.cpu_count(),
             "system_ram_bytes": psutil.virtual_memory().total,
