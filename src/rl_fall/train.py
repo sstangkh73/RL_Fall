@@ -13,7 +13,7 @@ import subprocess
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TextIO
 
 import gymnasium as gym
 import numpy as np
@@ -32,6 +32,9 @@ from .env import EnvironmentConfig, RLFallEnv
 from .env3d import RLFall3DEnv
 from .damage import PARTS
 from .telemetry import ResourceSampler
+
+# CREATE_NO_WINDOW exists only on Windows; 0 is the POSIX no-op.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 TOTAL_ROLLOUT_TRANSITIONS = 2048
 
@@ -76,7 +79,7 @@ def _git_commit() -> str | None:
     try:
         return subprocess.check_output(
             ["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=NO_WINDOW,
         ).strip()
     except (OSError, subprocess.SubprocessError):
         return None
@@ -244,6 +247,7 @@ def run_training(
     telemetry = ResourceSampler(run_dir / "resources.jsonl")
     status, failure = "failed", None
     env: VecEnv | None = None
+    updates_stream: TextIO | None = None
     result: dict[str, object] = {"run_id": run_id, "status": status}
     started_wall = time.time()
     startup_start = time.perf_counter()
@@ -260,6 +264,15 @@ def run_training(
         startup_seconds = time.perf_counter() - startup_start
         update_rows: list[dict[str, float | int | str]] = []
         evaluation_rows: list[dict[str, object]] = []
+        # Rows are flushed as they complete so long runs keep their logs if interrupted.
+        updates_stream = (run_dir / "updates.csv").open("w", newline="", encoding="utf-8")
+        updates_writer: csv.DictWriter | None = None
+
+        def write_evaluations() -> None:
+            (run_dir / "evaluations.json").write_text(
+                json.dumps(evaluation_rows, indent=2, sort_keys=True), encoding="utf-8"
+            )
+
         if 0 in checkpoint_updates:
             model.save(run_dir / "checkpoint_update_0")
             env.save(run_dir / "vecnormalize_update_0.pkl")
@@ -272,6 +285,7 @@ def run_training(
                 "seconds": time.perf_counter() - eval_start,
                 "metrics": metrics,
             })
+            write_evaluations()
         for phase, count in (("warmup", warmup_updates), ("steady", measured_updates)):
             for phase_update in range(count):
                 synchronize(device)
@@ -297,6 +311,13 @@ def run_training(
                     ),
                     "episode_terminations": callback.episode_terminations,
                 })
+                if updates_writer is None:
+                    updates_writer = csv.DictWriter(
+                        updates_stream, fieldnames=list(update_rows[0])
+                    )
+                    updates_writer.writeheader()
+                updates_writer.writerow(update_rows[-1])
+                updates_stream.flush()
                 completed_updates = len(update_rows)
                 if completed_updates in checkpoint_updates:
                     model.save(run_dir / f"checkpoint_update_{completed_updates}")
@@ -311,6 +332,7 @@ def run_training(
                         "seconds": time.perf_counter() - eval_start,
                         "metrics": metrics,
                     })
+                    write_evaluations()
         synchronize(device)
         save_start = time.perf_counter()
         model.save(run_dir / "checkpoint")
@@ -322,14 +344,6 @@ def run_training(
             )
             if evaluation_scenarios > 0 and not checkpoint_updates else None
         )
-        if evaluation_rows:
-            (run_dir / "evaluations.json").write_text(
-                json.dumps(evaluation_rows, indent=2, sort_keys=True), encoding="utf-8"
-            )
-        with (run_dir / "updates.csv").open("w", newline="", encoding="utf-8") as stream:
-            writer = csv.DictWriter(stream, fieldnames=list(update_rows[0]))
-            writer.writeheader()
-            writer.writerows(update_rows)
         steady = [float(row["seconds"]) for row in update_rows if row["phase"] == "steady"]
         status = "complete"
         result = {
@@ -350,6 +364,8 @@ def run_training(
         result = {"run_id": run_id, "status": status, "failure": failure}
         raise
     finally:
+        if updates_stream is not None:
+            updates_stream.close()
         if env is not None:
             env.close()
         telemetry.stop()
@@ -403,7 +419,8 @@ def main() -> None:
     parser.add_argument("--measured-updates", type=int, default=20)
     parser.add_argument("--evaluation-scenarios", type=int, default=0)
     parser.add_argument("--stage", choices=("smoke", "P2_screening", "P3_confirmation",
-                                             "P4_learning"), default="smoke")
+                                             "P4_learning", "learning_curve"),
+                        default="smoke")
     parser.add_argument("--checkpoint-updates", nargs="*", type=int, default=())
     parser.add_argument("--environment", choices=("planar", "3d"), default="planar")
     parser.add_argument("--network-width", type=int, choices=(128, 256, 512), default=None)

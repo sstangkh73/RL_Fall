@@ -12,6 +12,9 @@ from pathlib import Path
 import psutil
 import torch
 
+# CREATE_NO_WINDOW exists only on Windows; 0 is the POSIX no-op.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 def run_one(command: list[str], root: Path) -> None:
     print("RUN", " ".join(command), flush=True)
@@ -94,7 +97,7 @@ def confirmation_preflight(allow_busy_system: bool) -> None:
     try:
         output = subprocess.check_output(
             ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
-            text=True, timeout=4, creationflags=subprocess.CREATE_NO_WINDOW,
+            text=True, timeout=4, creationflags=NO_WINDOW,
         )
         gpu_util = float(output.strip().splitlines()[0])
     except (OSError, subprocess.SubprocessError, ValueError, IndexError):

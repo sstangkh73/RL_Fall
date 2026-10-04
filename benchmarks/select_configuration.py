@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import statistics
@@ -16,9 +17,15 @@ def sha256(path: Path) -> str:
 
 
 def main() -> None:
-    result_root = ROOT / "results" / "benchmark"
-    current_asset = sha256(ROOT / "assets" / "planar_body.xml")
-    current_config = sha256(ROOT / "configs" / "benchmark" / "base.json")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--environment", choices=("planar", "3d"), default="planar")
+    environment = parser.parse_args().environment
+    is_3d = environment == "3d"
+    result_root = ROOT / "results" / ("benchmark_3d" if is_3d else "benchmark")
+    current_asset = sha256(ROOT / "assets" / ("body_3d.xml" if is_3d else "planar_body.xml"))
+    current_config = sha256(
+        ROOT / "configs" / "benchmark" / ("base_3d.json" if is_3d else "base.json")
+    )
     runs: list[dict[str, object]] = []
     for path in result_root.glob("*/manifest.json"):
         manifest = json.loads(path.read_text(encoding="utf-8"))
@@ -27,6 +34,11 @@ def main() -> None:
             and manifest.get("status") == "complete"
             and manifest.get("asset_sha256") == current_asset
             and manifest.get("config_sha256") == current_config
+            and manifest.get("environment_dimension", "planar") == environment
+            # The 3D amendment requires warm-up 10 + measured 20 for selection;
+            # reduced-budget diagnostic screens must not mix in.
+            and (not is_3d or (manifest.get("warmup_updates"),
+                               manifest.get("measured_updates")) == (10, 20))
         ):
             manifest["path"] = str(path.parent)
             runs.append(manifest)
@@ -45,6 +57,7 @@ def main() -> None:
             "cuda_tps": cuda["steady_transitions_per_second"],
             "cuda_speedup": float(cpu["steady_seconds"]) / float(cuda["steady_seconds"]),
             "paired_initial_weights_sha256": cpu["paired_initial_weights_sha256"],
+            "_runs": (cpu, cuda),
         })
     if not candidates:
         raise SystemExit("No current-revision complete P2 CPU/CUDA pair")
@@ -62,10 +75,9 @@ def main() -> None:
     if gpu_util is not None and gpu_util > 10.0:
         reasons.append(f"pre-existing GPU utilization is {gpu_util:.0f}%")
 
-    selected_cpu = next(run for run in runs if run["device"] == "cpu"
-                        and run["learner_threads"] == selected["learner_threads"])
-    selected_cuda = next(run for run in runs if run["device"] == "cuda"
-                         and run["learner_threads"] == selected["learner_threads"])
+    selected_cpu, selected_cuda = selected["_runs"]
+    for row in candidates:
+        del row["_runs"]
     cpu_run_seconds = float(selected_cpu["warmup_seconds"]) + 5 * float(selected_cpu["steady_seconds"])
     cuda_run_seconds = float(selected_cuda["warmup_seconds"]) + 5 * float(selected_cuda["steady_seconds"])
     # With one environment P3 has 24 runs: 12 on each device.
@@ -73,7 +85,9 @@ def main() -> None:
     decision = {
         "stage": "P2_selection", "status": "candidate_selected_P3_not_started",
         "current_asset_sha256": current_asset, "current_config_sha256": current_config,
-        "screening_pairs": sorted(candidates, key=lambda row: row["learner_threads"]),
+        "screening_pairs": sorted(
+            candidates, key=lambda row: (row["n_envs"], row["learner_threads"])
+        ),
         "selected_shared_layout": selected,
         "selection_rule": "fastest tuned CPU baseline; identical layout retained for CPU/CUDA pair",
         "P3_plan": {
@@ -89,7 +103,7 @@ def main() -> None:
         "resource_preflight": {
             "ready": resource_ready, "available_ram_gib": available_gib,
             "gpu_utilization_percent": gpu_util, "hold_reasons": reasons,
-            "paging_status": "unavailable because Windows performance counters failed",
+            "paging_status": "not measured",
         },
         "interpretation": (
             "P2 is one screening seed. CPU is the candidate, not a confirmed winner; "
@@ -98,7 +112,9 @@ def main() -> None:
     }
     json_path = result_root / "P2_selection.json"
     json_path.write_text(json.dumps(decision, indent=2, sort_keys=True), encoding="utf-8")
-    config_path = ROOT / "configs" / "benchmark" / "p3_candidate.json"
+    config_path = ROOT / "configs" / "benchmark" / (
+        "p3_candidate_3d.json" if is_3d else "p3_candidate.json"
+    )
     config_path.write_text(json.dumps(decision["P3_plan"] | {
         "status": "hold" if not resource_ready else "ready",
         "resource_preflight_reasons": reasons,
@@ -110,7 +126,8 @@ def main() -> None:
         "| envs | wrapper | threads | CPU transitions/s | CUDA transitions/s | CUDA speedup |",
         "|---:|---|---:|---:|---:|---:|",
     ]
-    for row in sorted(candidates, key=lambda item: int(item["learner_threads"])):
+    for row in sorted(candidates, key=lambda item: (int(item["n_envs"]),
+                                                   int(item["learner_threads"]))):
         lines.append(
             f"| {row['n_envs']} | {row['wrapper']} | {row['learner_threads']} | "
             f"{float(row['cpu_tps']):.1f} | {float(row['cuda_tps']):.1f} | "

@@ -18,6 +18,18 @@ $env:PYTHONPATH = "$PWD\src"
 .\.venv\Scripts\python.exe -m pytest
 ```
 
+Linux / WSL2 (ไม่ต้องใช้ sudo; ใช้แบบเดียวกันบน login node ของ HPC ได้):
+
+```bash
+git clone <repo> ~/RL_Fall && cd ~/RL_Fall
+scripts/setup_linux.sh              # สร้าง venv ที่ ~/venvs/rl_fall
+scripts/run_benchmark_3d.sh         # pytest -> P1 -> P2 physics/PPO -> selection -> P3
+scripts/run_benchmark_3d.sh --with-p4
+```
+
+บน WSL ให้ clone ไว้ใน Linux filesystem (`~/`) ไม่ใช่ `/mnt/c` เพราะ I/O ข้าม
+ระบบไฟล์ช้ากว่า ผลรันบน Linux และ Windows ต่าง platform กัน ห้ามนำมาจับคู่เทียบกัน
+
 ## Smoke test และ benchmark
 
 ```powershell

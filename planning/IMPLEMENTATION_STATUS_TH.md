@@ -1,6 +1,74 @@
 # สถานะ benchmark CPU เทียบ RTX 4060
 
-อัปเดต 12 กันยายน 2569
+อัปเดต 3 ตุลาคม 2569
+
+## ย้ายไป Linux และ P3-3D เสร็จ (3 ตุลาคม 2569)
+
+รันบน WSL2 Ubuntu 24.04 (Linux-6.6.87.2-microsoft-standard-WSL2, Python 3.12.3,
+torch 2.14.0+cu130, MuJoCo 3.13.0) เครื่องเดิม: CPU 16 logical, RTX 4060 ด้วย
+`scripts/setup_linux.sh` และ `scripts/run_benchmark_3d.sh` source snapshot
+อยู่ใน manifest ของแต่ละ run (git HEAD a938bd0 + การแก้ portability ที่ยังไม่ commit)
+
+- tests 22/22 ผ่าน, P1-3D convergence ผ่านครบ 5 กรณี
+- P2-3D physics ชุดหลัก 8 สภาวะ × 20,000 × 3: median 1,482–1,669 transitions/s
+- P2-3D PPO ชุดเต็ม (warm-up 10 + measured 20) เลือก 8 envs, subproc, 4 learner threads:
+
+| envs | threads | CPU t/s | CUDA t/s | CUDA speedup |
+|---:|---:|---:|---:|---:|
+| 1 | 1 | 803.0 | 349.5 | 0.435x |
+| 1 | 4 | 778.4 | 344.6 | 0.443x |
+| 4 | 1 | 1,714.3 | 933.5 | 0.545x |
+| 4 | 4 | 1,817.3 | 848.0 | 0.467x |
+| 8 | 1 | 2,109.7 | 1,308.5 | 0.620x |
+| 8 | 4 | 2,401.5 | 1,369.4 | 0.570x |
+
+- P3-3D ครบ 24/24 runs (A–D × seeds 33001–33003 × CPU/CUDA, warm-up 10 + measured 100)
+  ไม่มี failed run ทุกคู่ใช้ initial-weights และ source hash ตรงกัน ผ่าน preflight gate
+  และ GPU utilization ระหว่าง CPU runs มี median 0%:
+
+| condition | CPU t/s (median) | CUDA t/s (median) | CUDA speedup median (range) |
+|---|---:|---:|---:|
+| A | 2,755.6 | 1,403.7 | 0.509x (0.495–0.537) |
+| B | 2,574.8 | 1,321.8 | 0.513x (0.507–0.531) |
+| C | 2,786.0 | 1,417.0 | 0.509x (0.502–0.515) |
+| D | 2,511.9 | 1,409.7 | 0.547x (0.532–0.622) |
+
+สรุปเชิงระบบ: บน Linux ที่ layout 8 envs, CPU PPO เร็วกว่า CUDA ประมาณ 2 เท่าในทุก condition
+ยังไม่ใช่ข้อสรุป time-to-solution จนกว่า P4-3D quality gate จะผ่าน และห้ามจับคู่ตัวเลขนี้กับผล
+Windows เพราะต่าง platform
+
+รอบแรกบน WSL ถูกยกเลิกเพราะ Roblox ใช้ GPU ~99% และ CPU ระหว่างวัด ผลเก็บไว้ที่
+`results/linux_wsl/benchmark_3d_confounded_roblox_20261003/` และห้ามใช้ ผลชุดที่ใช้ได้อยู่ใน
+`results/linux_wsl/benchmark_3d/` (ต้นฉบับอยู่ที่ `~/RL_Fall/results/benchmark_3d` ใน WSL)
+
+### P4-3D และ learning curve (4 ตุลาคม 2569)
+
+P4-3D ครบ 6/6 runs (condition B, 8 envs, seeds 44001–44003, 512 updates, evaluation
+64 scenarios ที่ update 0/128/256/512) paired weights ตรงกันทุกคู่ CPU ใช้ ~430 วินาที/run
+(~2,440 t/s) ส่วน CUDA ใช้ ~840 วินาที/run (~1,240 t/s) และ evaluation บน CUDA ช้ากว่า
+(~180 เทียบกับ ~100 วินาที)
+
+| seed | device | mean task successes ที่ update 0 / 128 / 256 / 512 |
+|---:|---|---|
+| 44001 | CPU | 0.000 / 0.172 / 0.266 / 0.219 |
+| 44001 | CUDA | 0.000 / 0.109 / 0.234 / 0.062 |
+| 44002 | CPU | 0.000 / 0.016 / 0.156 / 0.094 |
+| 44002 | CUDA | 0.000 / 0.156 / 0.188 / 0.125 |
+| 44003 | CPU | 0.000 / 0.172 / 0.109 / 0.156 |
+| 44003 | CUDA | 0.000 / 0.016 / 0.078 / 0.109 |
+
+Learning curve ยาว (CPU, B, seed 55001, 12,000 updates = 24.6M transitions,
+2.86 ชั่วโมง steady, 2,390 t/s) ไม่มีแนวโน้มเรียนรู้: task successes ระหว่าง train อยู่ที่
+0.15–0.19 ต่อ update ตลอดตั้งแต่ช่วงแรก task reward เฉลี่ยใกล้ 0 และ evaluation success
+แกว่งอยู่ระหว่าง 0.08–0.22 ต่อ episode ไม่ขยับขึ้นตามจำนวน updates ส่วน damage penalty
+เป็น 0 เพราะ condition B ปิด penalty ตามที่ออกแบบไว้
+
+ข้อสรุปตามแผนข้อ 6.5: ทั้งสองฝั่งยังไม่เรียนรู้ จึงสรุปได้แค่ benchmark ระบบ
+(CPU เร็วกว่า CUDA ~2 เท่า) ยังสรุป time-to-solution ไม่ได้ และยังไม่ควรใช้ผลนี้กำหนด
+งบ node-hours ของงานวิจัย ต้องทำให้ task เรียนรู้ได้ก่อน เช่น ตรวจ reward/shaping,
+เพิ่มรางวัลการทรงตัว, ทำ curriculum หรือปรับ hyperparameters โดยใช้เครื่องนี้ทำรอบสั้นๆ
+
+ผลอยู่ใน `results/linux_wsl/benchmark_3d/` และ `results/linux_wsl/learning_curve_3d/`
 
 ## การเปลี่ยนขอบเขต
 
