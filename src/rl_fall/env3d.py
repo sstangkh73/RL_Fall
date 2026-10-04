@@ -36,6 +36,17 @@ JOINT_PARTS = (
     *("left_leg",) * 4,
     *("right_leg",) * 4,
 )
+BODY_ASSETS = {"v0_1": "body_3d.xml", "v0_2": "body_3d_v0_2.xml"}
+MODES = ("task", "balance")
+# Curriculum stage 1: straight legs on flat feet, elbows slightly bent.
+BALANCE_STANCE = np.array(
+    [0.0, 0.0, 0.0, -0.25, 0.0, 0.0, 0.0, -0.25,
+     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+)
+BALANCE_ROOT_HEIGHT = 0.642  # v0.2 feet start 2 mm above the floor in the stance.
+BALANCE_EPISODE_SECONDS = 10.0
+FALL_TORSO_HEIGHT_M = 0.45
+FALL_UPRIGHT_COS = 0.5
 
 
 class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
@@ -54,16 +65,31 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         evaluation_impairment: bool | None = None,
         config: EnvironmentConfig | None = None,
         damage_parameters: DamageParameters | None = None,
+        body: str = "v0_1",
+        mode: str = "task",
+        max_push_impulse: float = 0.45,
     ) -> None:
         super().__init__()
         condition = condition.upper()
         if condition not in CONDITIONS:
             raise ValueError(f"condition must be one of {tuple(CONDITIONS)}")
-        self.config = config or EnvironmentConfig(condition=condition)
+        if body not in BODY_ASSETS:
+            raise ValueError(f"body must be one of {tuple(BODY_ASSETS)}")
+        if mode not in MODES:
+            raise ValueError(f"mode must be one of {MODES}")
+        if mode == "balance" and body == "v0_1":
+            raise ValueError("balance mode needs a body with feet (v0_2)")
+        self.body = body
+        self.mode = mode
+        self.max_push_impulse = float(max_push_impulse)
+        self.config = config or EnvironmentConfig(
+            condition=condition,
+            episode_seconds=BALANCE_EPISODE_SECONDS if mode == "balance" else 30.0,
+        )
         if self.config.condition.upper() != condition:
             raise ValueError("condition argument and config.condition disagree")
 
-        asset = Path(__file__).resolve().parents[2] / "assets" / "body_3d.xml"
+        asset = Path(__file__).resolve().parents[2] / "assets" / BODY_ASSETS[body]
         self.model = mujoco.MjModel.from_xml_path(str(asset))
         self.model.opt.timestep = self.config.physics_dt
         self.data = mujoco.MjData(self.model)
@@ -115,6 +141,14 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
                 self.geom_part[geom_id] = "left_leg"
             elif name.startswith(("right_thigh", "right_shin")):
                 self.geom_part[geom_id] = "right_leg"
+        self.floor_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
+        self.foot_geom_ids = {
+            geom_id for geom_id in range(self.model.ngeom)
+            if (mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, geom_id) or "")
+            .endswith("_foot")
+        }
+        self._non_foot_floor_contact = False
+        self.fallen = False
 
         self.action_space = spaces.Box(-1.0, 1.0, shape=(16,), dtype=np.float32)
         # joint angle/velocity 32, base velocity 6, body gravity 3,
@@ -151,9 +185,12 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         return self.data.site_xpos[self.hand_site_ids].copy()
 
     def _sample_push(self) -> None:
-        self.push_start = float(self.push_rng.uniform(2.0, 4.0))
+        # Same draw order in every mode so task-mode benchmark streams are unchanged.
+        start_range = (1.0, 3.0) if self.mode == "balance" else (2.0, 4.0)
+        self.push_start = float(self.push_rng.uniform(*start_range))
         self.push_duration = float(self.push_rng.uniform(0.05, 0.15))
-        dimensionless_impulse = float(self.push_rng.uniform(0.0, 0.45))
+        dimensionless_impulse = float(self.push_rng.uniform(0.0, self.max_push_impulse))
+        self.push_impulse = dimensionless_impulse
         angle = float(self.push_rng.uniform(-np.pi, np.pi))
         total_mass = float(np.sum(self.model.body_mass))
         impulse_ns = dimensionless_impulse * total_mass * np.sqrt(9.81 * 1.2)
@@ -186,6 +223,9 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
              0.05, 0.0, 0.0, 0.10, 0.05, 0.0, 0.0, 0.10]
         )
         self.data.qpos[self.actuated_qpos] = crouch
+        if self.mode == "balance":
+            self.data.qpos[2] = BALANCE_ROOT_HEIGHT
+            self.data.qpos[self.actuated_qpos] = BALANCE_STANCE
         if options and "qpos" in options:
             supplied = np.asarray(options["qpos"], dtype=np.float64)
             if supplied.shape != self.data.qpos.shape:
@@ -205,6 +245,8 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         self.contact_counts = {name: 0 for name in PARTS}
         self.max_contact_loads = {name: 0.0 for name in PARTS}
         self.last_applied_torque.fill(0.0)
+        self._non_foot_floor_contact = False
+        self.fallen = False
         self.task.reset(self._torso_xyz())
         self._last_task_distance = self.task.distance(
             self._torso_xyz(), self._hand_xyz()
@@ -216,7 +258,14 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
     def _requested_torque(self, action: np.ndarray) -> np.ndarray:
         centers = self.joint_ranges.mean(axis=1)
         half_ranges = (self.joint_ranges[:, 1] - self.joint_ranges[:, 0]) / 2.0
-        targets = centers + np.asarray(action, dtype=np.float64) * half_ranges
+        if self.mode == "balance":
+            # Zero action holds the stance; targets stay inside the joint ranges.
+            targets = np.clip(
+                BALANCE_STANCE + np.asarray(action, dtype=np.float64) * half_ranges,
+                self.joint_ranges[:, 0], self.joint_ranges[:, 1],
+            )
+        else:
+            targets = centers + np.asarray(action, dtype=np.float64) * half_ranges
         return (
             self.config.kp * (targets - self.data.qpos[self.actuated_qpos])
             - self.config.kd * self.data.qvel[self.actuated_qvel]
@@ -233,6 +282,12 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
                 part = self.geom_part.get(geom)
                 if part is not None:
                     loads[part] = max(loads[part], magnitude)
+            if self.mode == "balance":
+                pair = (int(contact.geom1), int(contact.geom2))
+                if self.floor_geom_id in pair:
+                    other = pair[1] if pair[0] == self.floor_geom_id else pair[0]
+                    if other not in self.foot_geom_ids:
+                        self._non_foot_floor_contact = True
         return loads
 
     def step(self, action: np.ndarray):
@@ -270,6 +325,9 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
                 self.contact_counts[part] += 1
             self.max_contact_loads[part] = max(self.max_contact_loads[part], load)
 
+        if self.mode == "balance":
+            return self._balance_step(action, total_increment, step_peak_loads)
+
         torso, hands = self._torso_xyz(), self._hand_xyz()
         distance, success = self.task.advance(torso, hands)
         progress_reward = self.task.parameters.shaping_scale * (
@@ -294,10 +352,56 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         info["reward_damage_penalty"] = -damage_penalty
         return observation, task_reward - damage_penalty, terminated, False, info
 
+    def _upright_cos(self) -> float:
+        return float(self.data.xmat[self.torso_body_id].reshape(3, 3)[2, 2])
+
+    def _balance_step(
+        self, action: np.ndarray, total_increment: np.ndarray,
+        step_peak_loads: dict[str, float],
+    ):
+        upright = self._upright_cos()
+        self.fallen = (
+            self._torso_xyz()[2] < FALL_TORSO_HEIGHT_M
+            or upright < FALL_UPRIGHT_COS
+            or self._non_foot_floor_contact
+        )
+        # Survival bonus plus uprightness; small effort and jerk costs. A fall ends
+        # the episode with no further reward, which is the implicit penalty.
+        reward = 0.0 if self.fallen else (
+            1.0 + 0.5 * upright
+            - 0.05 * float(np.mean(np.square(action)))
+            - 0.05 * float(np.mean(np.square(action - self.previous_action)))
+        )
+        self.previous_action[:] = action
+        self.elapsed_steps += 1
+        terminated = self.fallen or self.elapsed_steps >= self.config.max_episode_steps
+        observation = self._get_observation(sample_sensor=True)
+        info = self._info(total_increment, success=False)
+        info["step_peak_contact_loads_n"] = step_peak_loads
+        info["reward_task"] = 0.0
+        info["reward_damage_penalty"] = 0.0
+        info["reward_balance"] = reward
+        info["fallen"] = self.fallen
+        info["push_impulse"] = self.push_impulse
+        return observation, reward, terminated, False, info
+
     def _get_observation(self, sample_sensor: bool) -> np.ndarray:
         rotation = self.data.xmat[self.torso_body_id].reshape(3, 3)
         gravity_body = rotation.T @ np.array([0.0, 0.0, -1.0])
         relative_target = self.task.target - self._torso_xyz()
+        if self.mode == "balance":
+            # No task in stage 1: kind, target and validity slots stay zero.
+            remaining = 1.0 - self.elapsed_steps / self.config.max_episode_steps
+            return np.concatenate([
+                self.data.qpos[self.actuated_qpos],
+                self.data.qvel[self.actuated_qvel],
+                self.data.qvel[:6],
+                gravity_body,
+                np.zeros(6),
+                self.previous_action,
+                self.damage_model.damage,
+                np.array([remaining]),
+            ]).astype(np.float32)
         if sample_sensor:
             self._last_sensor_target, self._last_sensor_valid = target_sensor(
                 relative_target, self.damage_model.damage[PART_INDEX["head"]],

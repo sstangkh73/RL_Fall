@@ -29,7 +29,7 @@ from stable_baselines3.common.vec_env import (
 )
 
 from .env import EnvironmentConfig, RLFallEnv
-from .env3d import RLFall3DEnv
+from .env3d import BALANCE_EPISODE_SECONDS, BODY_ASSETS, RLFall3DEnv
 from .damage import PARTS
 from .telemetry import ResourceSampler
 
@@ -50,7 +50,8 @@ def _sha256(path: Path) -> str:
 def snapshot_source(run_dir: Path, environment: str) -> str:
     root = Path.cwd()
     selected_files = (
-        [Path("assets/body_3d.xml"), Path("configs/benchmark/base_3d.json"),
+        [Path("assets/body_3d.xml"), Path("assets/body_3d_v0_2.xml"),
+         Path("configs/benchmark/base_3d.json"),
          Path("configs/benchmark/model_3d_v0_1.json")]
         if environment == "3d"
         else [Path("assets/planar_body.xml"), Path("configs/benchmark/base.json"),
@@ -86,22 +87,24 @@ def _git_commit() -> str | None:
 
 
 def make_env_factory(
-    condition: str, seed: int, rank: int, environment: str = "planar"
+    condition: str, seed: int, rank: int, environment: str = "planar",
+    env_kwargs: dict[str, object] | None = None,
 ) -> Callable[[], gym.Env]:
     def factory() -> gym.Env:
         # Simulation workers do not import torch or initialize CUDA themselves.
         env_class = RLFall3DEnv if environment == "3d" else RLFallEnv
-        return env_class(condition=condition, seed=seed + rank)
+        return env_class(condition=condition, seed=seed + rank, **(env_kwargs or {}))
 
     return factory
 
 
 def make_vec_env(
     condition: str, seed: int, n_envs: int, wrapper: str,
-    environment: str = "planar",
+    environment: str = "planar", env_kwargs: dict[str, object] | None = None,
 ) -> VecNormalize:
     factories = [
-        make_env_factory(condition, seed, rank, environment) for rank in range(n_envs)
+        make_env_factory(condition, seed, rank, environment, env_kwargs)
+        for rank in range(n_envs)
     ]
     if wrapper == "dummy":
         base: VecEnv = DummyVecEnv(factories)
@@ -123,6 +126,8 @@ class UpdateMetricsCallback(BaseCallback):
                                       ("head", "torso", "left_arm", "right_arm",
                                        "left_leg", "right_leg")}
         self.episode_terminations = 0
+        self.falls = 0
+        self.balance_reward = 0.0
 
     def _on_step(self) -> bool:
         infos = self.locals.get("infos", [])
@@ -135,6 +140,8 @@ class UpdateMetricsCallback(BaseCallback):
             for part, load in info.get("step_peak_contact_loads_n", {}).items():
                 self.contact_control_steps[part] += int(float(load) > 0.0)
             self.episode_terminations += int(bool(dones[index]))
+            self.falls += int(bool(info.get("fallen", False)))
+            self.balance_reward += float(info.get("reward_balance", 0.0))
         return True
 
 
@@ -182,16 +189,21 @@ def load_or_create_initial_weights(model: PPO, path: Path) -> str:
 
 def evaluate(
     model: PPO, training_env: VecNormalize, seed: int, scenarios: int = 8,
-    environment: str = "planar",
+    environment: str = "planar", env_kwargs: dict[str, object] | None = None,
+    condition: str = "B", evaluation_impairment: bool | None = True,
 ) -> dict[str, object]:
     env_class = RLFall3DEnv if environment == "3d" else RLFallEnv
     base = DummyVecEnv([
-        lambda: env_class(condition="B", seed=seed, evaluation_impairment=True)
+        lambda: env_class(condition=condition, seed=seed,
+                          evaluation_impairment=evaluation_impairment,
+                          **(env_kwargs or {}))
     ])
     env = VecNormalize(base, training=False, norm_obs=True, norm_reward=False,
                        clip_obs=training_env.clip_obs)
     env.obs_rms = training_env.obs_rms
     successes: list[int] = []
+    falls: list[int] = []
+    episode_steps: list[int] = []
     damage: list[list[float]] = []
     contacts = {name: 0 for name in PARTS}
     for scenario in range(scenarios):
@@ -204,6 +216,8 @@ def evaluate(
             observation, _, done, infos = env.step(action)
             last_info = infos[0]
         successes.append(int(last_info["task_successes_episode"]))
+        falls.append(int(bool(last_info.get("fallen", False))))
+        episode_steps.append(int(last_info["elapsed_control_steps"]))
         damage.append(list(last_info["damage"]))
         for name, count in dict(last_info["contact_counts"]).items():
             contacts[name] += int(count)
@@ -214,6 +228,8 @@ def evaluate(
         "task_successes": successes,
         "mean_final_damage": np.mean(np.asarray(damage), axis=0).tolist(),
         "contact_counts": contacts,
+        "fall_rate": float(np.mean(falls)),
+        "mean_episode_steps": float(np.mean(episode_steps)),
     }
 
 
@@ -223,9 +239,22 @@ def run_training(
     evaluation_scenarios: int = 0, stage: str = "smoke",
     checkpoint_updates: tuple[int, ...] = (),
     environment: str = "planar", network_width: int | None = None,
+    body: str = "v0_1", mode: str = "task", max_push_impulse: float = 0.45,
+    init_checkpoint: Path | None = None,
 ) -> dict[str, object]:
     if environment not in ("planar", "3d"):
         raise ValueError("environment must be planar or 3d")
+    if environment == "planar" and (body, mode) != ("v0_1", "task"):
+        raise ValueError("body and mode options apply to the 3d environment only")
+    env_kwargs = (
+        {"body": body, "mode": mode, "max_push_impulse": max_push_impulse}
+        if environment == "3d" else None
+    )
+    # Task-mode evaluation keeps the benchmark's impaired condition-B scenarios;
+    # curriculum modes evaluate under the training condition.
+    eval_condition, eval_impairment = (
+        ("B", True) if mode == "task" else (condition, None)
+    )
     if network_width is None:
         network_width = 256 if environment == "3d" else 128
     if TOTAL_ROLLOUT_TRANSITIONS % n_envs:
@@ -253,13 +282,30 @@ def run_training(
     startup_start = time.perf_counter()
     try:
         telemetry.start()
-        env = make_vec_env(condition, seed, n_envs, wrapper, environment)
-        model = create_model(env, device, seed, n_steps, network_width)
-        weights_hash = load_or_create_initial_weights(
-            model, _initial_weights_path(
-                output_dir, seed, n_envs, environment, network_width
+        env = make_vec_env(condition, seed, n_envs, wrapper, environment, env_kwargs)
+        if init_checkpoint is not None:
+            # Curriculum continuation: policy, optimizer and observation statistics.
+            model = PPO.load(init_checkpoint, env=env, device=device)
+            model.set_random_seed(seed)
+            normalizer = init_checkpoint.with_name(
+                init_checkpoint.stem.replace("checkpoint", "vecnormalize") + ".pkl"
             )
-        )
+            env.obs_rms = VecNormalize.load(str(normalizer), env.venv).obs_rms
+            weights_hash = _sha256(init_checkpoint)
+        else:
+            model = create_model(env, device, seed, n_steps, network_width)
+            weights_hash = load_or_create_initial_weights(
+                model, _initial_weights_path(
+                    output_dir, seed, n_envs, environment, network_width
+                )
+            )
+
+        def run_evaluation() -> dict[str, object]:
+            return evaluate(
+                model, env, seed + 1_000_000, evaluation_scenarios, environment,
+                env_kwargs, eval_condition, eval_impairment,
+            )
+
         synchronize(device)
         startup_seconds = time.perf_counter() - startup_start
         update_rows: list[dict[str, float | int | str]] = []
@@ -277,9 +323,7 @@ def run_training(
             model.save(run_dir / "checkpoint_update_0")
             env.save(run_dir / "vecnormalize_update_0.pkl")
             eval_start = time.perf_counter()
-            metrics = evaluate(
-                model, env, seed + 1_000_000, evaluation_scenarios, environment
-            )
+            metrics = run_evaluation()
             evaluation_rows.append({
                 "update": 0,
                 "seconds": time.perf_counter() - eval_start,
@@ -310,6 +354,8 @@ def run_training(
                         callback.contact_control_steps, sort_keys=True
                     ),
                     "episode_terminations": callback.episode_terminations,
+                    "falls": callback.falls,
+                    "reward_balance_sum": callback.balance_reward,
                 })
                 if updates_writer is None:
                     updates_writer = csv.DictWriter(
@@ -323,10 +369,7 @@ def run_training(
                     model.save(run_dir / f"checkpoint_update_{completed_updates}")
                     env.save(run_dir / f"vecnormalize_update_{completed_updates}.pkl")
                     eval_start = time.perf_counter()
-                    metrics = evaluate(
-                        model, env, seed + 1_000_000, evaluation_scenarios,
-                        environment,
-                    )
+                    metrics = run_evaluation()
                     evaluation_rows.append({
                         "update": completed_updates,
                         "seconds": time.perf_counter() - eval_start,
@@ -339,9 +382,7 @@ def run_training(
         save_seconds = time.perf_counter() - save_start
         env.save(run_dir / "vecnormalize.pkl")
         evaluation = (
-            evaluate(
-                model, env, seed + 1_000_000, evaluation_scenarios, environment
-            )
+            run_evaluation()
             if evaluation_scenarios > 0 and not checkpoint_updates else None
         )
         steady = [float(row["seconds"]) for row in update_rows if row["phase"] == "steady"]
@@ -375,6 +416,8 @@ def run_training(
             "condition": condition, "device": device, "physics_backend": "MuJoCo CPU",
             "environment_dimension": environment,
             "network_width": network_width,
+            "body": body, "mode": mode, "max_push_impulse": max_push_impulse,
+            "init_checkpoint": str(init_checkpoint) if init_checkpoint else None,
             "n_envs": n_envs, "n_steps_per_env": n_steps, "wrapper": wrapper,
             "learner_threads": threads, "seed": seed,
             "warmup_updates": warmup_updates, "measured_updates": measured_updates,
@@ -393,10 +436,13 @@ def run_training(
                 else "configs/benchmark/base.json"
             )),
             "asset_sha256": _sha256(Path(
-                "assets/body_3d.xml" if environment == "3d"
+                f"assets/{BODY_ASSETS[body]}" if environment == "3d"
                 else "assets/planar_body.xml"
             )),
-            "environment_config": asdict(EnvironmentConfig(condition=condition)),
+            "environment_config": asdict(EnvironmentConfig(
+                condition=condition,
+                episode_seconds=BALANCE_EPISODE_SECONDS if mode == "balance" else 30.0,
+            )),
             "process_tree_rss_note": "sum can double-count shared pages",
             "failure": failure,
         }
@@ -419,18 +465,24 @@ def main() -> None:
     parser.add_argument("--measured-updates", type=int, default=20)
     parser.add_argument("--evaluation-scenarios", type=int, default=0)
     parser.add_argument("--stage", choices=("smoke", "P2_screening", "P3_confirmation",
-                                             "P4_learning", "learning_curve"),
+                                             "P4_learning", "learning_curve",
+                                             "S1_balance"),
                         default="smoke")
     parser.add_argument("--checkpoint-updates", nargs="*", type=int, default=())
     parser.add_argument("--environment", choices=("planar", "3d"), default="planar")
     parser.add_argument("--network-width", type=int, choices=(128, 256, 512), default=None)
+    parser.add_argument("--body", choices=tuple(BODY_ASSETS), default="v0_1")
+    parser.add_argument("--mode", choices=("task", "balance"), default="task")
+    parser.add_argument("--max-push-impulse", type=float, default=0.45)
+    parser.add_argument("--init-checkpoint", type=Path, default=None)
     args = parser.parse_args()
     wrapper = args.wrapper or ("dummy" if args.n_envs == 1 else "subproc")
     result = run_training(args.output, args.device, args.condition, args.seed,
                           args.n_envs, wrapper, args.threads, args.warmup_updates,
                           args.measured_updates, args.evaluation_scenarios, args.stage,
                           tuple(args.checkpoint_updates), args.environment,
-                          args.network_width)
+                          args.network_width, args.body, args.mode,
+                          args.max_push_impulse, args.init_checkpoint)
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
