@@ -45,6 +45,9 @@ BALANCE_STANCE = np.array(
 )
 BALANCE_ROOT_HEIGHT = 0.642  # v0.2 feet start 2 mm above the floor in the stance.
 BALANCE_EPISODE_SECONDS = 10.0
+# Fraction of each joint's half-range one unit of action may offset from the
+# stance; full authority let PPO learn bang-bang kicks that topple the body.
+BALANCE_ACTION_SCALE = 0.25
 FALL_TORSO_HEIGHT_M = 0.45
 FALL_UPRIGHT_COS = 0.5
 
@@ -261,7 +264,8 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         if self.mode == "balance":
             # Zero action holds the stance; targets stay inside the joint ranges.
             targets = np.clip(
-                BALANCE_STANCE + np.asarray(action, dtype=np.float64) * half_ranges,
+                BALANCE_STANCE
+                + np.asarray(action, dtype=np.float64) * BALANCE_ACTION_SCALE * half_ranges,
                 self.joint_ranges[:, 0], self.joint_ranges[:, 1],
             )
         else:

@@ -101,6 +101,7 @@ def make_env_factory(
 def make_vec_env(
     condition: str, seed: int, n_envs: int, wrapper: str,
     environment: str = "planar", env_kwargs: dict[str, object] | None = None,
+    norm_reward: bool = False, gamma: float = 0.999,
 ) -> VecNormalize:
     factories = [
         make_env_factory(condition, seed, rank, environment, env_kwargs)
@@ -112,7 +113,8 @@ def make_vec_env(
         base = SubprocVecEnv(factories, start_method="spawn")
     else:
         raise ValueError("wrapper must be dummy or subproc")
-    return VecNormalize(base, training=True, norm_obs=True, norm_reward=False, clip_obs=10.0)
+    return VecNormalize(base, training=True, norm_obs=True, norm_reward=norm_reward,
+                        clip_obs=10.0, gamma=gamma)
 
 
 class UpdateMetricsCallback(BaseCallback):
@@ -151,28 +153,33 @@ def synchronize(device: str) -> None:
 
 
 def create_model(
-    env: VecEnv, device: str, seed: int, n_steps: int, network_width: int = 128
+    env: VecEnv, device: str, seed: int, n_steps: int, network_width: int = 128,
+    log_std_init: float = 0.0, gamma: float = 0.999,
 ) -> PPO:
     return PPO(
         "MlpPolicy", env, device=device, seed=seed,
         learning_rate=3e-4, n_steps=n_steps, batch_size=512, n_epochs=10,
-        gamma=0.999, gae_lambda=0.95, clip_range=0.2,
+        gamma=gamma, gae_lambda=0.95, clip_range=0.2,
         policy_kwargs={
             "net_arch": {
                 "pi": [network_width, network_width],
                 "vf": [network_width, network_width],
-            }
+            },
+            "log_std_init": log_std_init,
         },
         verbose=0,
     )
 
 
 def _initial_weights_path(
-    root: Path, seed: int, n_envs: int, environment: str, network_width: int
+    root: Path, seed: int, n_envs: int, environment: str, network_width: int,
+    mode: str = "task",
 ) -> Path:
+    # Curriculum modes use a different log_std_init, so they never share files.
+    suffix = "" if mode == "task" else f"_{mode}"
     return (
         root / "paired_initial_weights"
-        / f"{environment}_w{network_width}_seed_{seed}_envs_{n_envs}.pt"
+        / f"{environment}_w{network_width}_seed_{seed}_envs_{n_envs}{suffix}.pt"
     )
 
 
@@ -255,6 +262,10 @@ def run_training(
     eval_condition, eval_impairment = (
         ("B", True) if mode == "task" else (condition, None)
     )
+    # Balance returns reach hundreds with gamma 0.999 and destabilised PPO in the
+    # first S1 run; curriculum modes use a 2 s horizon and normalized rewards.
+    gamma = 0.999 if mode == "task" else 0.99
+    norm_reward = mode != "task"
     if network_width is None:
         network_width = 256 if environment == "3d" else 128
     if TOTAL_ROLLOUT_TRANSITIONS % n_envs:
@@ -282,7 +293,8 @@ def run_training(
     startup_start = time.perf_counter()
     try:
         telemetry.start()
-        env = make_vec_env(condition, seed, n_envs, wrapper, environment, env_kwargs)
+        env = make_vec_env(condition, seed, n_envs, wrapper, environment, env_kwargs,
+                           norm_reward, gamma)
         if init_checkpoint is not None:
             # Curriculum continuation: policy, optimizer and observation statistics.
             model = PPO.load(init_checkpoint, env=env, device=device)
@@ -290,13 +302,17 @@ def run_training(
             normalizer = init_checkpoint.with_name(
                 init_checkpoint.stem.replace("checkpoint", "vecnormalize") + ".pkl"
             )
-            env.obs_rms = VecNormalize.load(str(normalizer), env.venv).obs_rms
+            saved = VecNormalize.load(str(normalizer), env.venv)
+            env.obs_rms, env.ret_rms = saved.obs_rms, saved.ret_rms
             weights_hash = _sha256(init_checkpoint)
         else:
-            model = create_model(env, device, seed, n_steps, network_width)
+            # Curriculum modes start with smaller exploration noise (std ~0.37).
+            model = create_model(env, device, seed, n_steps, network_width,
+                                 log_std_init=0.0 if mode == "task" else -1.0,
+                                 gamma=gamma)
             weights_hash = load_or_create_initial_weights(
                 model, _initial_weights_path(
-                    output_dir, seed, n_envs, environment, network_width
+                    output_dir, seed, n_envs, environment, network_width, mode
                 )
             )
 
@@ -417,6 +433,7 @@ def run_training(
             "environment_dimension": environment,
             "network_width": network_width,
             "body": body, "mode": mode, "max_push_impulse": max_push_impulse,
+            "gamma": gamma, "norm_reward": norm_reward,
             "init_checkpoint": str(init_checkpoint) if init_checkpoint else None,
             "n_envs": n_envs, "n_steps_per_env": n_steps, "wrapper": wrapper,
             "learner_threads": threads, "seed": seed,
