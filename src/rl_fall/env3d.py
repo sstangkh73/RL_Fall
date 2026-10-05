@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -41,7 +42,24 @@ ANKLE_JOINT_NAMES = (
 )
 BODY_ASSETS = {
     "v0_1": "body_3d.xml", "v0_2": "body_3d_v0_2.xml", "v0_3": "body_3d_v0_3.xml",
+    "v1_0": "body_v1_0_female.xml",
 }
+# Spec-driven bodies take joints, strength, injury thresholds and stance from a
+# research spec instead of the hand-written tables below.
+BODY_SPECS = {"v1_0": "configs/research/body_v1_0_female.json"}
+BODY_TRUNK = {"v1_0": "Chest"}          # default "torso_body"
+BODY_HEIGHT_M = {"v1_0": 1.60}          # default 1.2; scales dimensionless pushes
+FALL_TRUNK_HEIGHT_M = {"v1_0": 0.70}    # default FALL_TORSO_HEIGHT_M
+# v1.0 stance: arms 10 deg abducted and elbows 10 deg flexed so they clear the trunk.
+V1_STANCE_DEG = {"L_Shoulder_x": 10.0, "R_Shoulder_x": -10.0,
+                 "L_Elbow_y": -10.0, "R_Elbow_y": -10.0}
+V1_PART = {"Pelvis": "torso", "Torso": "torso", "Spine": "torso", "Chest": "torso",
+           "Neck": "head", "Head": "head", "Thorax": "arm", "Shoulder": "arm",
+           "Elbow": "arm", "Wrist": "arm", "Hand": "arm", "Hip": "leg", "Knee": "leg",
+           "Ankle": "leg", "Toe": "leg"}
+# Full torque at this joint error defines the v1.0 PD stiffness (kp = limit / error).
+V1_KP_FULL_TORQUE_RAD = 0.25
+V1_KD_RATIO = 1.0 / 20.0
 BODY_JOINTS = {
     "v0_1": JOINT_NAMES,
     "v0_2": JOINT_NAMES,
@@ -70,7 +88,7 @@ BALANCE_EPISODE_SECONDS = 10.0
 # stance; full authority let PPO learn bang-bang kicks that topple the body.
 BALANCE_ACTION_SCALE = 0.25
 # v0.3 legs (hips, knees, ankles) get more authority so stepping is reachable.
-BALANCE_LEG_ACTION_SCALE = {"v0_2": 0.25, "v0_3": 0.6}
+BALANCE_LEG_ACTION_SCALE = {"v0_2": 0.25, "v0_3": 0.6, "v1_0": 0.6}
 # Ankle PD gains: with the shared kp=55 the body (m*g*h ~ 137 Nm/rad about the
 # ankles) collapses at once; 2 x 150 Nm/rad gives ~2x the gravitational stiffness.
 ANKLE_KP = 150.0
@@ -101,6 +119,7 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         mode: str = "task",
         max_push_impulse: float = 0.45,
         hard_push_fraction: float = 0.0,
+        posture_weight: float = 0.0,
     ) -> None:
         super().__init__()
         condition = condition.upper()
@@ -112,11 +131,15 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
             raise ValueError(f"mode must be one of {MODES}")
         if mode == "balance" and body == "v0_1":
             raise ValueError("balance mode needs a body with feet (v0_2 or v0_3)")
-        if mode == "task" and body == "v0_3":
-            raise ValueError("v0_3 is only wired for balance mode so far")
+        if mode == "task" and body in ("v0_3", "v1_0"):
+            raise ValueError(f"{body} is only wired for balance mode so far")
         if not 0.0 <= hard_push_fraction <= 1.0:
             raise ValueError("hard_push_fraction must be in [0, 1]")
         self.hard_push_fraction = float(hard_push_fraction)
+        # Curriculum step (a): penalise changing the foot placement before the push,
+        # so the policy cannot pre-widen its stance and must step reactively.
+        self.posture_weight = float(posture_weight)
+        self.body_height = BODY_HEIGHT_M.get(body, 1.2)
         self.body = body
         self.mode = mode
         self.max_push_impulse = float(max_push_impulse)
@@ -141,20 +164,24 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         self.penalty_enabled = CONDITIONS[condition]["penalty"]
         self.damage_model = DamageModel(damage_parameters)
 
-        joint_names = BODY_JOINTS[body]
-        self.joint_parts = BODY_JOINT_PARTS[body]
-        self.base_limits = np.array(BODY_TORQUE_LIMITS[body], dtype=np.float64)
+        self.geom_injury_threshold: dict[int, float] = {}
+        if body in BODY_SPECS:
+            joint_names = self._init_spec_body(body)
+        else:
+            joint_names = BODY_JOINTS[body]
+            self.joint_parts = BODY_JOINT_PARTS[body]
+            self.base_limits = np.array(BODY_TORQUE_LIMITS[body], dtype=np.float64)
+            self.stance = np.zeros(len(joint_names))
+            self.stance[:16] = BALANCE_STANCE
+            is_ankle = np.array([name in ANKLE_JOINT_NAMES for name in joint_names])
+            self.kp = np.where(is_ankle, ANKLE_KP, self.config.kp)
+            self.kd = np.where(is_ankle, ANKLE_KD, self.config.kd)
         n_joints = len(joint_names)
-        self.stance = np.zeros(n_joints)
-        self.stance[:16] = BALANCE_STANCE
         self.action_scale = np.array([
-            BALANCE_ACTION_SCALE if part.endswith("_arm")
-            else BALANCE_LEG_ACTION_SCALE.get(body, BALANCE_ACTION_SCALE)
+            BALANCE_LEG_ACTION_SCALE.get(body, BALANCE_ACTION_SCALE)
+            if part.endswith("_leg") else BALANCE_ACTION_SCALE
             for part in self.joint_parts
         ])
-        is_ankle = np.array([name in ANKLE_JOINT_NAMES for name in joint_names])
-        self.kp = np.where(is_ankle, ANKLE_KP, self.config.kp)
-        self.kd = np.where(is_ankle, ANKLE_KD, self.config.kd)
         joint_ids = np.array([
             mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, name)
             for name in joint_names
@@ -163,16 +190,20 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
             raise RuntimeError("3D asset is missing an expected joint")
         self.actuated_qpos = self.model.jnt_qposadr[joint_ids].copy()
         self.actuated_qvel = self.model.jnt_dofadr[joint_ids].copy()
+        if body in BODY_SPECS:
+            self.model.dof_damping[self.actuated_qvel] += self._implicit_kd
         self.joint_ranges = self.model.jnt_range[joint_ids].copy()
         self.torso_body_id = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_BODY, "torso_body"
+            self.model, mujoco.mjtObj.mjOBJ_BODY, BODY_TRUNK.get(body, "torso_body")
         )
+        self.fall_trunk_height = FALL_TRUNK_HEIGHT_M.get(body, FALL_TORSO_HEIGHT_M)
         self.hand_site_ids = np.array([
             mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "left_hand"),
             mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "right_hand"),
         ])
-        self.geom_part: dict[int, str] = {}
-        for geom_id in range(self.model.ngeom):
+        if body not in BODY_SPECS:
+            self.geom_part: dict[int, str] = {}
+        for geom_id in range(0 if body in BODY_SPECS else self.model.ngeom):
             name = mujoco.mj_id2name(
                 self.model, mujoco.mjtObj.mjOBJ_GEOM, geom_id
             ) or ""
@@ -196,6 +227,13 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         }
         self._non_foot_floor_contact = False
         self.fallen = False
+        # Two sole geoms (not toes) define the stance vector for the posture term.
+        soles = sorted(
+            geom_id for geom_id in self.foot_geom_ids
+            if "toe" not in (mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, geom_id) or "")
+        )
+        self.sole_geom_ids = soles if len(soles) == 2 else []
+        self._nominal_feet = np.zeros(2)
 
         self.action_space = spaces.Box(-1.0, 1.0, shape=(n_joints,), dtype=np.float32)
         # joint angle/velocity 2n, base velocity 6, body gravity 3, task one-hot 2,
@@ -225,11 +263,62 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
             self.config.control_dt, self.task_rng, TaskParameters()
         )
 
+    def _init_spec_body(self, body: str) -> list[str]:
+        """Joints, strength, PD gains, stance and injury sites from a research spec."""
+        root = Path(__file__).resolve().parents[2]
+        spec = json.loads((root / BODY_SPECS[body]).read_text(encoding="utf-8"))
+        model = self.model
+        names, parts, limits = [], [], []
+        for joint_id in range(model.njnt):
+            if model.jnt_type[joint_id] != mujoco.mjtJoint.mjJNT_HINGE:
+                continue
+            name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, joint_id)
+            body_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY,
+                                          int(model.jnt_bodyid[joint_id]))
+            segment, axis = body_name.split("_")[-1], name[-1]
+            names.append(name)
+            parts.append(self._spec_part(body_name))
+            limits.append(float(spec["torque_limit_Nm"][segment][axis]))
+        self.joint_parts = tuple(parts)
+        self.base_limits = np.array(limits, dtype=np.float64)
+        self.kp = self.base_limits / V1_KP_FULL_TORQUE_RAD
+        # The derivative gain goes into MuJoCo's joint damping, which implicitfast
+        # integrates implicitly. Applied explicitly it chattered on the short spine
+        # segments (kd * dt / I > 2) and the body collapsed within 1 s.
+        self._implicit_kd = self.kp * V1_KD_RATIO
+        self.kd = np.zeros_like(self.kp)
+        self.stance = np.array([np.radians(V1_STANCE_DEG.get(name, 0.0)) for name in names])
+        self.geom_part = {}
+        for geom_id in range(model.ngeom):
+            body_id = int(model.geom_bodyid[geom_id])
+            if body_id == 0:
+                continue  # floor
+            body_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, body_id)
+            segment = body_name.split("_")[-1]
+            self.geom_part[geom_id] = self._spec_part(body_name)
+            self.geom_injury_threshold[geom_id] = (
+                1000.0 * float(spec["segments"][segment]["injury_kN"])
+            )
+        return names
+
+    @staticmethod
+    def _spec_part(body_name: str) -> str:
+        part = V1_PART[body_name.split("_")[-1]]
+        if part in ("arm", "leg"):
+            return ("left_" if body_name.startswith("L_") else "right_") + part
+        return part
+
     def _torso_xyz(self) -> np.ndarray:
         return self.data.xpos[self.torso_body_id].copy()
 
     def _hand_xyz(self) -> np.ndarray:
+        if np.any(self.hand_site_ids < 0):  # spec bodies have no hand sites yet
+            return np.repeat(self._torso_xyz()[None, :], 2, axis=0)
         return self.data.site_xpos[self.hand_site_ids].copy()
+
+    def _feet_vector(self) -> np.ndarray:
+        left, right = self.sole_geom_ids
+        return (self.data.geom_xpos[left] - self.data.geom_xpos[right])[:2].copy()
 
     def _sample_push(self) -> None:
         # Same draw order in every mode so task-mode benchmark streams are unchanged.
@@ -243,7 +332,7 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         self.push_impulse = dimensionless_impulse
         angle = float(self.push_rng.uniform(-np.pi, np.pi))
         total_mass = float(np.sum(self.model.body_mass))
-        impulse_ns = dimensionless_impulse * total_mass * np.sqrt(9.81 * 1.2)
+        impulse_ns = dimensionless_impulse * total_mass * np.sqrt(9.81 * self.body_height)
         magnitude = impulse_ns / self.push_duration
         self.push_force_world = magnitude * np.array(
             [np.cos(angle), np.sin(angle), 0.0], dtype=np.float64
@@ -273,7 +362,8 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
              0.05, 0.0, 0.0, 0.10, 0.05, 0.0, 0.0, 0.10]
         )
         if self.mode == "balance":
-            self.data.qpos[2] = BALANCE_ROOT_HEIGHT
+            if self.body not in BODY_SPECS:  # spec bodies keep the asset's root height
+                self.data.qpos[2] = BALANCE_ROOT_HEIGHT
             self.data.qpos[self.actuated_qpos] = self.stance
         else:
             self.data.qpos[self.actuated_qpos] = crouch
@@ -298,6 +388,8 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         self.last_applied_torque.fill(0.0)
         self._non_foot_floor_contact = False
         self.fallen = False
+        if self.sole_geom_ids:
+            self._nominal_feet = self._feet_vector()
         self.task.reset(self._torso_xyz())
         self._last_task_distance = self.task.distance(
             self._torso_xyz(), self._hand_xyz()
@@ -333,7 +425,15 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
             for geom in (int(contact.geom1), int(contact.geom2)):
                 part = self.geom_part.get(geom)
                 if part is not None:
-                    loads[part] = max(loads[part], magnitude)
+                    tolerance = self.geom_injury_threshold.get(geom)
+                    if tolerance is not None:
+                        # Express the load relative to this site's literature
+                        # tolerance, on the damage model's per-part scale.
+                        load = (magnitude * self.damage_model.parameters.threshold_n[part]
+                                / tolerance)
+                    else:
+                        load = magnitude
+                    loads[part] = max(loads[part], load)
             if self.mode == "balance":
                 pair = (int(contact.geom1), int(contact.geom2))
                 if self.floor_geom_id in pair:
@@ -413,7 +513,7 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
     ):
         upright = self._upright_cos()
         self.fallen = (
-            self._torso_xyz()[2] < FALL_TORSO_HEIGHT_M
+            self._torso_xyz()[2] < self.fall_trunk_height
             or upright < FALL_UPRIGHT_COS
             or self._non_foot_floor_contact
         )
@@ -424,6 +524,12 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
             - 0.05 * float(np.mean(np.square(action)))
             - 0.05 * float(np.mean(np.square(action - self.previous_action)))
         )
+        posture_penalty = 0.0
+        if (self.posture_weight > 0.0 and not self.fallen and self.sole_geom_ids
+                and float(self.data.time) < self.push_start):
+            drift = float(np.linalg.norm(self._feet_vector() - self._nominal_feet))
+            posture_penalty = self.posture_weight * min(1.0, (drift / 0.10) ** 2)
+            reward -= posture_penalty
         self.previous_action[:] = action
         self.elapsed_steps += 1
         terminated = self.fallen or self.elapsed_steps >= self.config.max_episode_steps
@@ -433,6 +539,7 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         info["reward_task"] = 0.0
         info["reward_damage_penalty"] = 0.0
         info["reward_balance"] = reward
+        info["posture_penalty"] = posture_penalty
         info["fallen"] = self.fallen
         info["push_impulse"] = self.push_impulse
         return observation, reward, terminated, False, info

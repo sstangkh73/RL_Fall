@@ -56,7 +56,8 @@ def env_kwargs_for(checkpoint: Path) -> dict[str, object]:
 def fix_impulse(env: RLFall3DEnv, impulse: float) -> None:
     mass = float(np.sum(env.model.body_mass))
     direction = env.push_force_world / max(float(np.linalg.norm(env.push_force_world)), 1e-9)
-    env.push_force_world = impulse * mass * np.sqrt(9.81 * 1.2) / env.push_duration * direction
+    env.push_force_world = (impulse * mass * np.sqrt(9.81 * env.body_height)
+                            / env.push_duration * direction)
     env.push_impulse = impulse
 
 

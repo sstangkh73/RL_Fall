@@ -5,6 +5,7 @@
 #   BODY  body version (default v0_2)
 #   HARD  share of pushes drawn from the step-requiring range (default 0)
 #   INIT_CHECKPOINT  continue from an existing policy instead of training from scratch
+#   POSTURE  weight of the pre-push foot-placement penalty (default 0)
 set -euo pipefail
 
 SEED="${1:-61001}"
@@ -15,6 +16,7 @@ read -r -a LEVELS <<< "${LEVELS[*]}"
 EVERY="${EVERY:-25}"  # balance updates are 16,384 transitions each
 BODY="${BODY:-v0_2}"
 HARD="${HARD:-0}"
+POSTURE="${POSTURE:-0}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="${PY:-$HOME/venvs/rl_fall/bin/python}"
 if [ "$BODY" = "v0_2" ]; then OUT="results/stage1/seed_${SEED}"
@@ -28,9 +30,10 @@ if [ -n "${INIT_CHECKPOINT:-}" ]; then INIT=(--init-checkpoint "$INIT_CHECKPOINT
 for LEVEL in "${LEVELS[@]}"; do
     LEVEL_OUT="$OUT/push_${LEVEL}"
     if [ "$HARD" != "0" ]; then LEVEL_OUT="${LEVEL_OUT}_hard${HARD}"; fi
-    echo "=== $(date '+%F %T') S1 body=$BODY seed=$SEED push<=$LEVEL hard=$HARD updates=$UPDATES ${INIT[*]:-from scratch}"
+    if [ "$POSTURE" != "0" ]; then LEVEL_OUT="${LEVEL_OUT}_posture${POSTURE}"; fi
+    echo "=== $(date '+%F %T') S1 body=$BODY seed=$SEED push<=$LEVEL hard=$HARD posture=$POSTURE updates=$UPDATES ${INIT[*]:-from scratch}"
     "$PY" -m rl_fall.train --environment 3d --body "$BODY" --mode balance \
-        --hard-push-fraction "$HARD" \
+        --hard-push-fraction "$HARD" --posture-weight "$POSTURE" \
         --condition A --max-push-impulse "$LEVEL" --stage S1_balance \
         --output "$LEVEL_OUT" --device cpu --seed "$SEED" --n-envs 8 --threads 4 \
         --warmup-updates 0 --measured-updates "$UPDATES" --evaluation-scenarios 64 \

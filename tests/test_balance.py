@@ -107,3 +107,44 @@ def test_hard_push_fraction_draws_from_step_range():
         env.reset(seed=seed)
         impulses.append(env.push_impulse)
     assert min(impulses) >= 0.13 and max(impulses) <= 0.25
+
+
+def test_v1_0_smpl_topology_matches_reference_person():
+    env = RLFall3DEnv(condition="A", seed=11, body="v1_0", mode="balance")
+    observation, _ = env.reset(seed=11)
+    assert env.model.nbody - 1 == 24              # SMPL bodies
+    assert env.action_space.shape == (69,)        # 23 joints x 3 hinges
+    assert observation.shape == (3 * 69 + 22,)
+    np.testing.assert_allclose(np.sum(env.model.body_mass), 60.0, atol=0.01)
+    assert env.data.ncon == 0                     # stance clears the floor and itself
+    assert env.body_height == 1.60
+
+
+def test_v1_0_injury_sites_use_literature_tolerances():
+    env = RLFall3DEnv(condition="A", seed=12, body="v1_0", mode="balance")
+    by_name = {env.model.geom(g).name: t for g, t in env.geom_injury_threshold.items()}
+    assert by_name["head"] == 2350.0      # temporo-parietal skull (Raymond 2009)
+    assert by_name["pelvis"] == 5770.0    # 5th-percentile female pelvis (Cavanaugh 1993)
+    assert by_name["L_palm"] == 2260.0    # distal radius (Frykman 1967)
+    assert by_name["L_foot"] == 3700.0    # foot/ankle axial (Funk 2002)
+
+
+def test_v1_0_passive_stance_stands_without_push():
+    env = RLFall3DEnv(condition="A", seed=13, body="v1_0", mode="balance",
+                      max_push_impulse=0.0)
+    env.reset(seed=13)
+    for _ in range(200):
+        _, _, terminated, _, info = env.step(np.zeros(69, dtype=np.float32))
+        assert not terminated and not info["fallen"]
+    assert not np.any(np.asarray(info["damage"]))  # standing loads stay below tolerances
+
+
+def test_posture_term_penalises_foot_drift_before_the_push():
+    env = RLFall3DEnv(condition="A", seed=14, body="v1_0", mode="balance",
+                      max_push_impulse=0.0, posture_weight=2.0)
+    env.reset(seed=14)
+    _, _, _, _, info = env.step(np.zeros(69, dtype=np.float32))
+    assert info["posture_penalty"] < 1e-3
+    env._nominal_feet = env._nominal_feet + np.array([0.2, 0.0])  # pretend feet moved 20 cm
+    _, _, _, _, info = env.step(np.zeros(69, dtype=np.float32))
+    assert info["posture_penalty"] == 2.0

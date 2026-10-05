@@ -34,7 +34,8 @@ def _fix_push(env: RLFall3DEnv, impulse: float, angle: float) -> None:
     # Keep the sampled timing, duration and point; set magnitude and direction.
     mass = float(np.sum(env.model.body_mass))
     direction = np.array([np.cos(angle), np.sin(angle), 0.0])
-    env.push_force_world = impulse * mass * np.sqrt(9.81 * 1.2) / env.push_duration * direction
+    env.push_force_world = (impulse * mass * np.sqrt(9.81 * env.body_height)
+                            / env.push_duration * direction)
     env.push_impulse = impulse
 
 
