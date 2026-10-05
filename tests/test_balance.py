@@ -65,3 +65,45 @@ def test_task_mode_defaults_are_unchanged():
     np.testing.assert_array_equal(obs_a, obs_b)
     assert default.push_start == explicit.push_start
     np.testing.assert_array_equal(default.push_force_world, explicit.push_force_world)
+
+
+@pytest.mark.parametrize("body, n_joints", [("v0_2", 16), ("v0_3", 20)])
+def test_balance_bodies_size_spaces_by_joint_count(body, n_joints):
+    env = RLFall3DEnv(condition="A", seed=5, body=body, mode="balance")
+    observation, _ = env.reset(seed=5)
+    np.testing.assert_allclose(np.sum(env.model.body_mass), 20.0)
+    assert env.action_space.shape == (n_joints,)
+    assert observation.shape == (3 * n_joints + 22,)
+    assert env.data.ncon == 0
+    assert len(env.foot_geom_ids) == 2
+
+
+def test_v0_3_ankles_are_leg_joints_with_more_authority():
+    env = RLFall3DEnv(condition="A", seed=6, body="v0_3", mode="balance")
+    assert env.joint_parts[16:] == ("left_leg", "left_leg", "right_leg", "right_leg")
+    assert np.all(env.action_scale[:8] == 0.25)   # arms unchanged
+    assert np.all(env.action_scale[8:] == 0.6)    # hips, knees, ankles
+
+
+def test_v0_3_passive_stance_stands_without_push():
+    env = RLFall3DEnv(condition="A", seed=7, body="v0_3", mode="balance",
+                      max_push_impulse=0.0)
+    env.reset(seed=7)
+    for _ in range(150):
+        _, _, terminated, _, info = env.step(np.zeros(20, dtype=np.float32))
+        assert not terminated and not info["fallen"]
+
+
+def test_v0_3_is_balance_only_for_now():
+    with pytest.raises(ValueError):
+        RLFall3DEnv(seed=1, body="v0_3", mode="task")
+
+
+def test_hard_push_fraction_draws_from_step_range():
+    impulses = []
+    for seed in range(40):
+        env = RLFall3DEnv(condition="A", seed=seed, body="v0_3", mode="balance",
+                          max_push_impulse=0.12, hard_push_fraction=1.0)
+        env.reset(seed=seed)
+        impulses.append(env.push_impulse)
+    assert min(impulses) >= 0.13 and max(impulses) <= 0.25

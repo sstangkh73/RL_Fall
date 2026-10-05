@@ -36,18 +36,47 @@ JOINT_PARTS = (
     *("left_leg",) * 4,
     *("right_leg",) * 4,
 )
-BODY_ASSETS = {"v0_1": "body_3d.xml", "v0_2": "body_3d_v0_2.xml"}
+ANKLE_JOINT_NAMES = (
+    "left_ankle_pitch", "left_ankle_roll", "right_ankle_pitch", "right_ankle_roll",
+)
+BODY_ASSETS = {
+    "v0_1": "body_3d.xml", "v0_2": "body_3d_v0_2.xml", "v0_3": "body_3d_v0_3.xml",
+}
+BODY_JOINTS = {
+    "v0_1": JOINT_NAMES,
+    "v0_2": JOINT_NAMES,
+    "v0_3": JOINT_NAMES + ANKLE_JOINT_NAMES,
+}
+BODY_JOINT_PARTS = {
+    "v0_1": JOINT_PARTS,
+    "v0_2": JOINT_PARTS,
+    "v0_3": JOINT_PARTS + ("left_leg", "left_leg", "right_leg", "right_leg"),
+}
+BODY_TORQUE_LIMITS = {
+    "v0_1": (35, 25, 18, 20, 35, 25, 18, 20, 60, 40, 30, 45, 60, 40, 30, 45),
+    "v0_2": (35, 25, 18, 20, 35, 25, 18, 20, 60, 40, 30, 45, 60, 40, 30, 45),
+    "v0_3": (35, 25, 18, 20, 35, 25, 18, 20, 60, 40, 30, 45, 60, 40, 30, 45,
+             30, 20, 30, 20),
+}
 MODES = ("task", "balance")
 # Curriculum stage 1: straight legs on flat feet, elbows slightly bent.
 BALANCE_STANCE = np.array(
     [0.0, 0.0, 0.0, -0.25, 0.0, 0.0, 0.0, -0.25,
      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 )
-BALANCE_ROOT_HEIGHT = 0.642  # v0.2 feet start 2 mm above the floor in the stance.
+BALANCE_ROOT_HEIGHT = 0.642  # v0.2/v0.3 feet start 2 mm above the floor in the stance.
 BALANCE_EPISODE_SECONDS = 10.0
 # Fraction of each joint's half-range one unit of action may offset from the
 # stance; full authority let PPO learn bang-bang kicks that topple the body.
 BALANCE_ACTION_SCALE = 0.25
+# v0.3 legs (hips, knees, ankles) get more authority so stepping is reachable.
+BALANCE_LEG_ACTION_SCALE = {"v0_2": 0.25, "v0_3": 0.6}
+# Ankle PD gains: with the shared kp=55 the body (m*g*h ~ 137 Nm/rad about the
+# ankles) collapses at once; 2 x 150 Nm/rad gives ~2x the gravitational stiffness.
+ANKLE_KP = 150.0
+ANKLE_KD = 5.0
+# Pushes beyond the feet-in-place limit (~0.127 for v0.2) that need a step.
+HARD_PUSH_RANGE = (0.13, 0.25)
 FALL_TORSO_HEIGHT_M = 0.45
 FALL_UPRIGHT_COS = 0.5
 
@@ -71,6 +100,7 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         body: str = "v0_1",
         mode: str = "task",
         max_push_impulse: float = 0.45,
+        hard_push_fraction: float = 0.0,
     ) -> None:
         super().__init__()
         condition = condition.upper()
@@ -81,7 +111,12 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}")
         if mode == "balance" and body == "v0_1":
-            raise ValueError("balance mode needs a body with feet (v0_2)")
+            raise ValueError("balance mode needs a body with feet (v0_2 or v0_3)")
+        if mode == "task" and body == "v0_3":
+            raise ValueError("v0_3 is only wired for balance mode so far")
+        if not 0.0 <= hard_push_fraction <= 1.0:
+            raise ValueError("hard_push_fraction must be in [0, 1]")
+        self.hard_push_fraction = float(hard_push_fraction)
         self.body = body
         self.mode = mode
         self.max_push_impulse = float(max_push_impulse)
@@ -106,14 +141,23 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         self.penalty_enabled = CONDITIONS[condition]["penalty"]
         self.damage_model = DamageModel(damage_parameters)
 
-        self.base_limits = np.array(
-            [35, 25, 18, 20, 35, 25, 18, 20,
-             60, 40, 30, 45, 60, 40, 30, 45],
-            dtype=np.float64,
-        )
+        joint_names = BODY_JOINTS[body]
+        self.joint_parts = BODY_JOINT_PARTS[body]
+        self.base_limits = np.array(BODY_TORQUE_LIMITS[body], dtype=np.float64)
+        n_joints = len(joint_names)
+        self.stance = np.zeros(n_joints)
+        self.stance[:16] = BALANCE_STANCE
+        self.action_scale = np.array([
+            BALANCE_ACTION_SCALE if part.endswith("_arm")
+            else BALANCE_LEG_ACTION_SCALE.get(body, BALANCE_ACTION_SCALE)
+            for part in self.joint_parts
+        ])
+        is_ankle = np.array([name in ANKLE_JOINT_NAMES for name in joint_names])
+        self.kp = np.where(is_ankle, ANKLE_KP, self.config.kp)
+        self.kd = np.where(is_ankle, ANKLE_KD, self.config.kd)
         joint_ids = np.array([
             mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, name)
-            for name in JOINT_NAMES
+            for name in joint_names
         ])
         if np.any(joint_ids < 0):
             raise RuntimeError("3D asset is missing an expected joint")
@@ -153,17 +197,17 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         self._non_foot_floor_contact = False
         self.fallen = False
 
-        self.action_space = spaces.Box(-1.0, 1.0, shape=(16,), dtype=np.float32)
-        # joint angle/velocity 32, base velocity 6, body gravity 3,
-        # task one-hot 2, 3-D target + mask, prior action 16, damage 6, time 1.
+        self.action_space = spaces.Box(-1.0, 1.0, shape=(n_joints,), dtype=np.float32)
+        # joint angle/velocity 2n, base velocity 6, body gravity 3, task one-hot 2,
+        # 3-D target + mask, prior action n, damage 6, time 1 (70 for 16 joints).
         self.observation_space = spaces.Box(
-            low=-1.0e6, high=1.0e6, shape=(70,), dtype=np.float32
+            low=-1.0e6, high=1.0e6, shape=(3 * n_joints + 22,), dtype=np.float32
         )
-        self.previous_action = np.zeros(16, dtype=np.float32)
+        self.previous_action = np.zeros(n_joints, dtype=np.float32)
         self.elapsed_steps = 0
         self.contact_counts = {name: 0 for name in PARTS}
         self.max_contact_loads = {name: 0.0 for name in PARTS}
-        self.last_applied_torque = np.zeros(16, dtype=np.float64)
+        self.last_applied_torque = np.zeros(n_joints, dtype=np.float64)
         self._last_task_distance = 0.0
         self._last_sensor_target = np.zeros(3, dtype=np.float32)
         self._last_sensor_valid = 1.0
@@ -193,6 +237,9 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         self.push_start = float(self.push_rng.uniform(*start_range))
         self.push_duration = float(self.push_rng.uniform(0.05, 0.15))
         dimensionless_impulse = float(self.push_rng.uniform(0.0, self.max_push_impulse))
+        # Extra draws only when enabled, so default push streams stay unchanged.
+        if self.hard_push_fraction > 0.0 and self.push_rng.uniform() < self.hard_push_fraction:
+            dimensionless_impulse = float(self.push_rng.uniform(*HARD_PUSH_RANGE))
         self.push_impulse = dimensionless_impulse
         angle = float(self.push_rng.uniform(-np.pi, np.pi))
         total_mass = float(np.sum(self.model.body_mass))
@@ -225,10 +272,11 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
             [0.0, 0.0, 0.0, -0.25, 0.0, 0.0, 0.0, -0.25,
              0.05, 0.0, 0.0, 0.10, 0.05, 0.0, 0.0, 0.10]
         )
-        self.data.qpos[self.actuated_qpos] = crouch
         if self.mode == "balance":
             self.data.qpos[2] = BALANCE_ROOT_HEIGHT
-            self.data.qpos[self.actuated_qpos] = BALANCE_STANCE
+            self.data.qpos[self.actuated_qpos] = self.stance
+        else:
+            self.data.qpos[self.actuated_qpos] = crouch
         if options and "qpos" in options:
             supplied = np.asarray(options["qpos"], dtype=np.float64)
             if supplied.shape != self.data.qpos.shape:
@@ -264,15 +312,15 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         if self.mode == "balance":
             # Zero action holds the stance; targets stay inside the joint ranges.
             targets = np.clip(
-                BALANCE_STANCE
-                + np.asarray(action, dtype=np.float64) * BALANCE_ACTION_SCALE * half_ranges,
+                self.stance
+                + np.asarray(action, dtype=np.float64) * self.action_scale * half_ranges,
                 self.joint_ranges[:, 0], self.joint_ranges[:, 1],
             )
         else:
             targets = centers + np.asarray(action, dtype=np.float64) * half_ranges
         return (
-            self.config.kp * (targets - self.data.qpos[self.actuated_qpos])
-            - self.config.kd * self.data.qvel[self.actuated_qvel]
+            self.kp * (targets - self.data.qpos[self.actuated_qpos])
+            - self.kd * self.data.qvel[self.actuated_qvel]
         )
 
     def _contact_loads(self) -> dict[str, float]:
@@ -304,7 +352,7 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         for _ in range(self.config.substeps):
             torque = apply_functional_limits(
                 self._requested_torque(action), self.base_limits,
-                self.damage_model.damage, self.impairment_enabled, JOINT_PARTS,
+                self.damage_model.damage, self.impairment_enabled, self.joint_parts,
             )
             self.last_applied_torque[:] = torque
             self.data.qfrc_applied[:] = 0.0

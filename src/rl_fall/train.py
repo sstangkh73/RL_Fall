@@ -57,6 +57,7 @@ def snapshot_source(run_dir: Path, environment: str) -> str:
     root = Path.cwd()
     selected_files = (
         [Path("assets/body_3d.xml"), Path("assets/body_3d_v0_2.xml"),
+         Path("assets/body_3d_v0_3.xml"),
          Path("configs/benchmark/base_3d.json"),
          Path("configs/benchmark/model_3d_v0_1.json")]
         if environment == "3d"
@@ -256,14 +257,15 @@ def run_training(
     checkpoint_updates: tuple[int, ...] = (),
     environment: str = "planar", network_width: int | None = None,
     body: str = "v0_1", mode: str = "task", max_push_impulse: float = 0.45,
-    init_checkpoint: Path | None = None,
+    init_checkpoint: Path | None = None, hard_push_fraction: float = 0.0,
 ) -> dict[str, object]:
     if environment not in ("planar", "3d"):
         raise ValueError("environment must be planar or 3d")
     if environment == "planar" and (body, mode) != ("v0_1", "task"):
         raise ValueError("body and mode options apply to the 3d environment only")
     env_kwargs = (
-        {"body": body, "mode": mode, "max_push_impulse": max_push_impulse}
+        {"body": body, "mode": mode, "max_push_impulse": max_push_impulse,
+         "hard_push_fraction": hard_push_fraction}
         if environment == "3d" else None
     )
     # Task-mode evaluation keeps the benchmark's impaired condition-B scenarios;
@@ -448,6 +450,7 @@ def run_training(
             "environment_dimension": environment,
             "network_width": network_width,
             "body": body, "mode": mode, "max_push_impulse": max_push_impulse,
+            "hard_push_fraction": hard_push_fraction,
             "gamma": gamma, "norm_reward": norm_reward,
             "init_checkpoint": str(init_checkpoint) if init_checkpoint else None,
             "n_envs": n_envs, "n_steps_per_env": n_steps, "wrapper": wrapper,
@@ -507,6 +510,8 @@ def main() -> None:
     parser.add_argument("--mode", choices=("task", "balance"), default="task")
     parser.add_argument("--max-push-impulse", type=float, default=0.45)
     parser.add_argument("--init-checkpoint", type=Path, default=None)
+    parser.add_argument("--hard-push-fraction", type=float, default=0.0,
+                        help="share of pushes drawn from the step-requiring range")
     args = parser.parse_args()
     wrapper = args.wrapper or ("dummy" if args.n_envs == 1 else "subproc")
     result = run_training(args.output, args.device, args.condition, args.seed,
@@ -514,7 +519,8 @@ def main() -> None:
                           args.measured_updates, args.evaluation_scenarios, args.stage,
                           tuple(args.checkpoint_updates), args.environment,
                           args.network_width, args.body, args.mode,
-                          args.max_push_impulse, args.init_checkpoint)
+                          args.max_push_impulse, args.init_checkpoint,
+                          args.hard_push_fraction)
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
