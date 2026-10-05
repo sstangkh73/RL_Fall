@@ -18,6 +18,8 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest==9.1.1"]
+# Optional: video recording in scripts/watch_policy.py
+viz = ["imageio==2.38.0", "imageio-ffmpeg==0.6.0"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

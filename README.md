@@ -30,6 +30,24 @@ scripts/run_benchmark_3d.sh --with-p4
 บน WSL ให้ clone ไว้ใน Linux filesystem (`~/`) ไม่ใช่ `/mnt/c` เพราะ I/O ข้าม
 ระบบไฟล์ช้ากว่า ผลรันบน Linux และ Windows ต่าง platform กัน ห้ามนำมาจับคู่เทียบกัน
 
+## ดูท่าทางของ policy (ใช้เฉพาะตอนอยากดู)
+
+`scripts/watch_policy.py` รันเป็น process แยกจากการเทรน จึงไม่ทำให้เทรนช้าลง ถ้าให้ path เป็นโฟลเดอร์
+ระดับบน สคริปต์จะเลือก checkpoint ล่าสุดเอง และในโหมดสดจะโหลด checkpoint ใหม่ทุกครั้งที่เริ่ม episode ถัดไป
+จึงดูความคืบหน้าระหว่างเทรนได้ บน Windows อ่านผลที่เทรนใน WSL ผ่าน `//wsl.localhost/Ubuntu/...` ได้โดยตรง
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+$R = "//wsl.localhost/Ubuntu/home/<user>/RL_Fall/results/stage1"
+.\.venv\Scripts\python.exe scripts\watch_policy.py $R                       # หน้าต่างสด
+.\.venv\Scripts\python.exe scripts\watch_policy.py $R --impulse 0.12        # แรงผลักคงที่
+.\.venv\Scripts\python.exe scripts\watch_policy.py $R --passive             # ท่านิ่ง ไม่มี policy
+.\.venv\Scripts\python.exe scripts\watch_policy.py $R --record out.mp4 --episodes 4
+```
+
+การอัดวิดีโอต้องติดตั้ง extra `viz` (`imageio`, `imageio-ffmpeg`) ส่วนหน้าต่างสดใช้ GPU วาดภาพ
+จึงไม่ควรเปิดไว้ระหว่างรัน benchmark ที่จับเวลา
+
 ## Smoke test และ benchmark
 
 ```powershell
