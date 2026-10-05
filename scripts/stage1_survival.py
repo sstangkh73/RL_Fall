@@ -3,9 +3,12 @@ impulses, for the passive stance (zero action) and for saved S1 checkpoints, plu
 the fraction of episodes with at least one recovery step.
 
 A step is a foot leaving the floor for >= 0.15 s and landing >= 10 cm from where
-it lifted off. The body, condition and push settings come from the run manifest.
+it lifted off. The body and condition come from the run manifest. Push directions
+are swept evenly around the body (scenario i uses direction i mod --directions);
+seeds still vary push timing, duration and application point. Seed-drawn
+directions made a 24-scenario set unrepresentative (0/24 falls vs 2/6 elsewhere).
 
-Usage: python scripts/stage1_survival.py RUN_DIR [--updates 50 150] [--scenarios 24]
+Usage: python scripts/stage1_survival.py RUN_DIR [--updates 50 150] [--directions 16 --repeats 3]
 """
 
 from __future__ import annotations
@@ -27,10 +30,10 @@ STEP_MIN_AIR_STEPS = 8      # 0.16 s at 50 Hz control
 STEP_MIN_DISPLACEMENT_M = 0.10
 
 
-def _fix_impulse(env: RLFall3DEnv, impulse: float) -> None:
-    # Keep the sampled direction, timing and duration; replace only the magnitude.
+def _fix_push(env: RLFall3DEnv, impulse: float, angle: float) -> None:
+    # Keep the sampled timing, duration and point; set magnitude and direction.
     mass = float(np.sum(env.model.body_mass))
-    direction = env.push_force_world / max(float(np.linalg.norm(env.push_force_world)), 1e-9)
+    direction = np.array([np.cos(angle), np.sin(angle), 0.0])
     env.push_force_world = impulse * mass * np.sqrt(9.81 * 1.2) / env.push_duration * direction
     env.push_impulse = impulse
 
@@ -60,7 +63,7 @@ class StepCounter:
 
 
 def run_episode(kwargs: dict[str, object], policy: tuple[PPO, Path] | None,
-                impulse: float, seed: int) -> tuple[bool, int]:
+                impulse: float, seed: int, angle: float) -> tuple[bool, int]:
     env = RLFall3DEnv(seed=seed, **kwargs)
     if policy is None:
         env.reset(seed=seed)
@@ -70,7 +73,7 @@ def run_episode(kwargs: dict[str, object], policy: tuple[PPO, Path] | None,
         venv.training = False
         venv.seed(seed)
         observation = venv.reset()
-    _fix_impulse(env, impulse)
+    _fix_push(env, impulse, angle)
     counter = StepCounter(env)
     done = False
     while not done:
@@ -86,10 +89,13 @@ def run_episode(kwargs: dict[str, object], policy: tuple[PPO, Path] | None,
 
 
 def curve(kwargs: dict[str, object], policy: tuple[PPO, Path] | None,
-          scenarios: int) -> dict[str, list[float]]:
+          directions: int, repeats: int,
+          impulses: tuple[float, ...] = IMPULSES) -> dict[str, list[float]]:
     survival, stepping = [], []
-    for impulse in IMPULSES:
-        results = [run_episode(kwargs, policy, impulse, SEED_BASE + index)
+    scenarios = directions * repeats
+    for impulse in impulses:
+        results = [run_episode(kwargs, policy, impulse, SEED_BASE + index,
+                               2.0 * np.pi * (index % directions) / directions)
                    for index in range(scenarios)]
         survival.append(sum(alive for alive, _ in results) / scenarios)
         stepping.append(sum(steps > 0 for _, steps in results) / scenarios)
@@ -100,22 +106,30 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("run_dir", type=Path)
     parser.add_argument("--updates", nargs="+", type=int, default=())
-    parser.add_argument("--scenarios", type=int, default=24)
+    parser.add_argument("--directions", type=int, default=16)
+    parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument("--impulses", nargs="+", type=float, default=IMPULSES)
+    parser.add_argument("--output", default="survival_curve.json",
+                        help="file name written inside RUN_DIR")
     args = parser.parse_args()
     torch.set_num_threads(4)
     manifest = json.loads((args.run_dir / "manifest.json").read_text(encoding="utf-8"))
     kwargs = {"condition": manifest.get("condition", "A"),
               "body": manifest.get("body", "v0_2"), "mode": "balance",
               "max_push_impulse": 0.45}
-    rows: dict[str, object] = {"impulses": list(IMPULSES), "scenarios": args.scenarios,
-                               "body": kwargs["body"], "passive": curve(kwargs, None, args.scenarios)}
+    rows: dict[str, object] = {
+        "impulses": list(args.impulses), "directions": args.directions,
+        "repeats": args.repeats, "body": kwargs["body"],
+        "passive": curve(kwargs, None, args.directions, args.repeats, tuple(args.impulses)),
+    }
     for update in args.updates:
         model = PPO.load(args.run_dir / f"checkpoint_update_{update}.zip", device="cpu")
         normalizer = args.run_dir / f"vecnormalize_update_{update}.pkl"
-        rows[f"update_{update}"] = curve(kwargs, (model, normalizer), args.scenarios)
-    (args.run_dir / "survival_curve.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
+        rows[f"update_{update}"] = curve(kwargs, (model, normalizer),
+                                        args.directions, args.repeats, tuple(args.impulses))
+    (args.run_dir / args.output).write_text(json.dumps(rows, indent=2), encoding="utf-8")
     print(f"body {kwargs['body']}; survival (stepping episodes) per impulse")
-    print("impulse".ljust(14), " ".join(f"{i:>11.2f}" for i in IMPULSES))
+    print("impulse".ljust(14), " ".join(f"{i:>11.2f}" for i in args.impulses))
     for name, values in rows.items():
         if isinstance(values, dict):
             print(name.ljust(14), " ".join(
