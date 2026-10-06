@@ -89,6 +89,34 @@ def run_episode(kwargs: dict[str, object], policy: tuple[PPO, Path] | None,
     return not info["fallen"], counter.steps
 
 
+def stance_check(kwargs: dict[str, object], policy: tuple[PPO, Path] | None,
+                 episodes: int = 12, seconds: float = 2.0) -> dict[str, float]:
+    """Pre-push posture without any push: foot drift, CoM drop and trunk lean."""
+    drifts, drops, leans = [], [], []
+    for index in range(episodes):
+        env = RLFall3DEnv(seed=SEED_BASE + 500 + index, **kwargs)
+        if policy is None:
+            env.reset(seed=SEED_BASE + 500 + index)
+        else:
+            model, normalizer = policy
+            venv = VecNormalize.load(str(normalizer), DummyVecEnv([lambda: env]))
+            venv.training = False
+            venv.seed(SEED_BASE + 500 + index)
+            observation = venv.reset()
+        env.push_force_world[:] = 0.0
+        for _ in range(int(seconds / env.config.control_dt)):
+            if policy is None:
+                env.step(np.zeros(env.action_space.shape, dtype=np.float32))
+            else:
+                action, _ = model.predict(observation, deterministic=True)
+                observation, _, _, _ = venv.step(action)
+        drifts.append(float(np.linalg.norm(env._feet_vector() - env._nominal_feet)))
+        drops.append(env._reference_com_height - float(env.data.subtree_com[1][2]))
+        leans.append(float(np.degrees(np.arccos(np.clip(env._upright_cos(), -1, 1)))))
+    return {"feet_drift_m": float(np.median(drifts)), "com_drop_m": float(np.median(drops)),
+            "trunk_lean_deg": float(np.median(leans))}
+
+
 def curve(kwargs: dict[str, object], policy: tuple[PPO, Path] | None,
           directions: int, repeats: int,
           impulses: tuple[float, ...] = IMPULSES) -> dict[str, list[float]]:
@@ -120,6 +148,8 @@ def main() -> None:
     kwargs = {"condition": manifest.get("condition", "A"),
               "body": manifest.get("body", "v0_2"), "mode": "balance",
               "max_push_impulse": 0.45}
+    if manifest.get("natural_stance"):
+        kwargs["natural_stance"] = True  # evaluate from the same relaxed starts
     rows: dict[str, object] = {
         "impulses": list(args.impulses), "directions": args.directions,
         "repeats": args.repeats, "body": kwargs["body"],
@@ -130,11 +160,16 @@ def main() -> None:
         normalizer = args.run_dir / f"vecnormalize_update_{update}.pkl"
         rows[f"update_{update}"] = curve(kwargs, (model, normalizer),
                                         args.directions, args.repeats, tuple(args.impulses))
+        if kwargs["body"] in ("v1_0",):
+            rows[f"stance_{update}"] = stance_check(kwargs, (model, normalizer))
     (args.run_dir / args.output).write_text(json.dumps(rows, indent=2), encoding="utf-8")
     print(f"body {kwargs['body']}; survival (share of survivors that stepped) per impulse")
     print("impulse".ljust(14), " ".join(f"{i:>11.2f}" for i in args.impulses))
     for name, values in rows.items():
-        if isinstance(values, dict):
+        if name.startswith("stance_"):
+            print(f"{name}: feet drift {values['feet_drift_m'] * 100:.1f} cm, CoM drop "
+                  f"{values['com_drop_m'] * 100:.1f} cm, trunk lean {values['trunk_lean_deg']:.1f} deg")
+        elif isinstance(values, dict):
             print(name.ljust(14), " ".join(
                 f"{s:>5.0%} ({t:>3.0%})" for s, t in zip(values["survival"], values["step_rate"])))
 

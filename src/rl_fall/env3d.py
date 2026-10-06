@@ -100,6 +100,19 @@ HARD_PUSH_RANGE = (0.13, 0.25)
 CAPTURE_SIGMA_M = 0.10
 CAPTURE_MIN_AIR_STEPS = 4      # 0.08 s airborne before a landing counts as a step
 CAPTURE_MAX_REWARDED_STEPS = 3
+# Natural-stance rule (posture_version 2): relaxed standing is free, bracing is not.
+# Feet may drift 8 cm (weight shifts, small foot moves) before any penalty; lowering
+# the CoM by > 3 cm (crouching) or leaning the trunk > 10 deg before the push is
+# penalised. The summed penalty is capped at the weight so the per-step reward stays
+# positive and falling never becomes the better option. Values are starting choices,
+# to be replaced by postural-sway data.
+NATURAL_FEET_DEADZONE_M = 0.08
+NATURAL_CROUCH_LIMIT_M = 0.03
+NATURAL_LEAN_LIMIT_RAD = np.radians(10.0)
+# Relaxed-stance start: pelvis shifted over one foot (both hips +/- 0.06 rad about x)
+# and feet set slightly wider or narrower (+/- per-hip spread).
+NATURAL_SHIFT_RAD = 0.06
+NATURAL_SPREAD_RAD = (-0.02, 0.04)
 FALL_TORSO_HEIGHT_M = 0.45
 FALL_UPRIGHT_COS = 0.5
 
@@ -126,6 +139,9 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         hard_push_fraction: float = 0.0,
         posture_weight: float = 0.0,
         capture_point_weight: float = 0.0,
+        posture_version: int = 1,
+        natural_stance: bool = False,
+        hard_push_range: tuple[float, float] | None = None,
     ) -> None:
         super().__init__()
         condition = condition.upper()
@@ -146,6 +162,13 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         # so the policy cannot pre-widen its stance and must step reactively.
         self.posture_weight = float(posture_weight)
         self.capture_point_weight = float(capture_point_weight)
+        if posture_version not in (1, 2):
+            raise ValueError("posture_version must be 1 or 2")
+        self.posture_version = posture_version
+        self.natural_stance = bool(natural_stance)
+        if natural_stance and body not in BODY_SPECS:
+            raise ValueError("natural_stance needs a spec body (v1_0)")
+        self.hard_push_range = tuple(hard_push_range or HARD_PUSH_RANGE)
         self.body_height = BODY_HEIGHT_M.get(body, 1.2)
         self.body = body
         self.mode = mode
@@ -244,6 +267,11 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         self._foot_air_steps = [0, 0]
         self._rewarded_steps = 0
         self._previous_com = np.zeros(3)
+        self._reference_com_height = 0.0
+        self._joint_index = {
+            mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT, int(joint_id)): index
+            for index, joint_id in enumerate(joint_ids)
+        }
 
         self.action_space = spaces.Box(-1.0, 1.0, shape=(n_joints,), dtype=np.float32)
         # joint angle/velocity 2n, base velocity 6, body gravity 3, task one-hot 2,
@@ -338,7 +366,7 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         dimensionless_impulse = float(self.push_rng.uniform(0.0, self.max_push_impulse))
         # Extra draws only when enabled, so default push streams stay unchanged.
         if self.hard_push_fraction > 0.0 and self.push_rng.uniform() < self.hard_push_fraction:
-            dimensionless_impulse = float(self.push_rng.uniform(*HARD_PUSH_RANGE))
+            dimensionless_impulse = float(self.push_rng.uniform(*self.hard_push_range))
         self.push_impulse = dimensionless_impulse
         angle = float(self.push_rng.uniform(-np.pi, np.pi))
         total_mass = float(np.sum(self.model.body_mass))
@@ -377,6 +405,8 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
             self.data.qpos[self.actuated_qpos] = self.stance
         else:
             self.data.qpos[self.actuated_qpos] = crouch
+        if self.natural_stance:
+            self._apply_natural_stance()
         if options and "qpos" in options:
             supplied = np.asarray(options["qpos"], dtype=np.float64)
             if supplied.shape != self.data.qpos.shape:
@@ -400,6 +430,7 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         self.fallen = False
         if self.sole_geom_ids:
             self._nominal_feet = self._feet_vector()
+        self._reference_com_height = float(self.data.subtree_com[1][2])
         self._foot_air_steps = [0, 0]
         self._rewarded_steps = 0
         self._previous_com = self.data.subtree_com[1].copy()
@@ -541,7 +572,10 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         if (self.posture_weight > 0.0 and not self.fallen and self.sole_geom_ids
                 and float(self.data.time) < self.push_start):
             drift = float(np.linalg.norm(self._feet_vector() - self._nominal_feet))
-            posture_penalty = self.posture_weight * min(1.0, (drift / 0.10) ** 2)
+            if self.posture_version == 1:
+                posture_penalty = self.posture_weight * min(1.0, (drift / 0.10) ** 2)
+            else:
+                posture_penalty = self.posture_weight * min(1.0, self._bracing_score(drift, upright))
             reward -= posture_penalty
         capture_bonus = self._capture_point_bonus() if not self.fallen else 0.0
         reward += capture_bonus
@@ -559,6 +593,40 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         info["fallen"] = self.fallen
         info["push_impulse"] = self.push_impulse
         return observation, reward, terminated, False, info
+
+    def _bracing_score(self, drift: float, upright: float) -> float:
+        """0 for relaxed standing; grows with wide stance, crouching and leaning."""
+        crouch = self._reference_com_height - float(self.data.subtree_com[1][2])
+        lean = float(np.arccos(np.clip(upright, -1.0, 1.0)))
+        return (
+            (max(0.0, drift - NATURAL_FEET_DEADZONE_M) / 0.10) ** 2
+            + (max(0.0, crouch - NATURAL_CROUCH_LIMIT_M) / 0.05) ** 2
+            + (max(0.0, lean - NATURAL_LEAN_LIMIT_RAD) / NATURAL_LEAN_LIMIT_RAD) ** 2
+        )
+
+    def _apply_natural_stance(self) -> None:
+        """Start from a relaxed stance: weight over one foot, varied foot spacing."""
+        shift = float(self.initial_rng.uniform(-NATURAL_SHIFT_RAD, NATURAL_SHIFT_RAD))
+        spread = float(self.initial_rng.uniform(*NATURAL_SPREAD_RAD))
+        qpos = self.data.qpos
+        for side, sign in (("L", 1.0), ("R", -1.0)):
+            # Rotation about +x moves either foot toward +y; ankles undo it so the
+            # soles stay flat. A common angle shifts the pelvis, +/- spread widens.
+            hip = -shift + sign * spread
+            qpos[self.actuated_qpos[self._joint_index[f"{side}_Hip_x"]]] = hip
+            qpos[self.actuated_qpos[self._joint_index[f"{side}_Ankle_x"]]] = -hip
+        mujoco.mj_forward(self.model, self.data)
+        # Re-seat the body so the lowest sole corner sits 2 mm above the floor.
+        lowest = min(self._lowest_point(geom) for geom in self.foot_geom_ids)
+        qpos[2] += 0.002 - lowest
+
+    def _lowest_point(self, geom: int) -> float:
+        center = self.data.geom_xpos[geom]
+        rotation = self.data.geom_xmat[geom].reshape(3, 3)
+        half = self.model.geom_size[geom]
+        corners = [center + rotation @ (half * np.array([sx, sy, sz]))
+                   for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
+        return min(float(corner[2]) for corner in corners)
 
     def _capture_point_bonus(self) -> float:
         """Reward the first few post-push landings by distance to the capture point."""

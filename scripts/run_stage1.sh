@@ -12,6 +12,9 @@
 #   LOG_STD  reset the policy log-std after loading INIT_CHECKPOINT (first level only)
 #   TAG  suffix for the output directory, to keep repeated settings apart
 #   CP  weight of the post-push capture-point landing bonus (default 0)
+#   POSTURE_VERSION  1 = any foot drift penalised, 2 = natural stance rule (default 1)
+#   NATURAL  1 = start from a randomised relaxed stance (default 0)
+#   HARD_RANGE  "lo hi" impulse range of the step-requiring pushes (default 0.13 0.25)
 set -euo pipefail
 
 SEED="${1:-61001}"
@@ -24,6 +27,10 @@ BODY="${BODY:-v0_2}"
 HARD="${HARD:-0}"
 POSTURE="${POSTURE:-0}"
 CP="${CP:-0}"
+POSTURE_VERSION="${POSTURE_VERSION:-1}"
+EXTRA=()
+if [ "${NATURAL:-0}" = "1" ]; then EXTRA+=(--natural-stance); fi
+if [ -n "${HARD_RANGE:-}" ]; then read -r -a RANGE <<< "$HARD_RANGE"; EXTRA+=(--hard-push-range "${RANGE[@]}"); fi
 TAG="${TAG:-}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="${PY:-$HOME/venvs/rl_fall/bin/python}"
@@ -53,7 +60,7 @@ for LEVEL in "${LEVELS[@]}"; do
         echo "=== $(date '+%F %T') S1 body=$BODY seed=$SEED push<=$LEVEL hard=$HARD posture=$POSTURE updates=$UPDATES ${START[*]}"
         "$PY" -m rl_fall.train --environment 3d --body "$BODY" --mode balance \
             --hard-push-fraction "$HARD" --posture-weight "$POSTURE" \
-            --capture-point-weight "$CP" \
+            --capture-point-weight "$CP" --posture-version "$POSTURE_VERSION" "${EXTRA[@]}" \
             --condition A --max-push-impulse "$LEVEL" --stage S1_balance \
             --device cpu --seed "$SEED" --n-envs 8 --threads 4 \
             --warmup-updates 0 --measured-updates "$UPDATES" --evaluation-scenarios 64 \

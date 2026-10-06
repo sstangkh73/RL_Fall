@@ -166,3 +166,27 @@ def test_capture_point_bonus_rewards_post_push_landing_near_capture_point():
     env._foot_air_steps[0] = 10
     env._rewarded_steps = 3                   # only the first three landings pay
     assert env._capture_point_bonus() == 0.0
+
+
+def test_natural_stance_shifts_weight_and_varies_foot_spacing():
+    widths, offsets = [], []
+    for seed in range(6):
+        env = RLFall3DEnv(condition="A", seed=seed, body="v1_0", mode="balance",
+                          natural_stance=True)
+        env.reset(seed=seed)
+        assert env.data.ncon == 0
+        left, right = (env.data.geom_xpos[g][:2] for g in env.sole_geom_ids)
+        widths.append(abs(left[1] - right[1]))
+        offsets.append(env.data.subtree_com[1][1] - (left[1] + right[1]) / 2)
+    assert max(widths) - min(widths) > 0.02          # foot spacing varies by > 2 cm
+    assert max(abs(o) for o in offsets) > 0.02        # weight shifted over one foot
+
+
+def test_natural_posture_rule_allows_relaxed_drift_and_penalises_bracing():
+    env = RLFall3DEnv(condition="A", seed=16, body="v1_0", mode="balance",
+                      max_push_impulse=0.0, posture_weight=1.0, posture_version=2)
+    env.reset(seed=16)
+    assert env._bracing_score(0.05, 1.0) == 0.0        # 5 cm weight-shift drift is free
+    assert abs(env._bracing_score(0.18, 1.0) - 1.0) < 1e-9  # 18 cm wide stance is penalised
+    env._reference_com_height += 0.08                  # as if the CoM dropped 8 cm
+    assert env._bracing_score(0.0, 1.0) > 0.9          # crouching is penalised

@@ -296,6 +296,8 @@ def run_training(
     init_checkpoint: Path | None = None, hard_push_fraction: float = 0.0,
     posture_weight: float = 0.0, resume_dir: Path | None = None,
     log_std: float | None = None, capture_point_weight: float = 0.0,
+    posture_version: int = 1, natural_stance: bool = False,
+    hard_push_range: tuple[float, float] | None = None,
 ) -> dict[str, object]:
     if environment not in ("planar", "3d"):
         raise ValueError("environment must be planar or 3d")
@@ -304,7 +306,9 @@ def run_training(
     env_kwargs = (
         {"body": body, "mode": mode, "max_push_impulse": max_push_impulse,
          "hard_push_fraction": hard_push_fraction, "posture_weight": posture_weight,
-         "capture_point_weight": capture_point_weight}
+         "capture_point_weight": capture_point_weight,
+         "posture_version": posture_version, "natural_stance": natural_stance,
+         "hard_push_range": hard_push_range}
         if environment == "3d" else None
     )
     # Task-mode evaluation keeps the benchmark's impaired condition-B scenarios;
@@ -520,6 +524,8 @@ def run_training(
             "body": body, "mode": mode, "max_push_impulse": max_push_impulse,
             "hard_push_fraction": hard_push_fraction, "posture_weight": posture_weight,
             "capture_point_weight": capture_point_weight,
+            "posture_version": posture_version, "natural_stance": natural_stance,
+            "hard_push_range": list(hard_push_range) if hard_push_range else None,
             "gamma": gamma, "norm_reward": norm_reward,
             "init_checkpoint": str(init_checkpoint) if init_checkpoint else None,
             "resumed_from_update": resumed_from, "log_std_override": log_std,
@@ -590,6 +596,12 @@ def main() -> None:
                         help="reset the policy log-std after loading --init-checkpoint")
     parser.add_argument("--capture-point-weight", type=float, default=0.0,
                         help="bonus for post-push foot landings near the capture point")
+    parser.add_argument("--posture-version", type=int, choices=(1, 2), default=1,
+                        help="1: penalise any foot drift; 2: natural stance (dead zone, crouch, lean)")
+    parser.add_argument("--natural-stance", action="store_true",
+                        help="start episodes from a randomised relaxed stance (spec bodies)")
+    parser.add_argument("--hard-push-range", nargs=2, type=float, default=None,
+                        help="impulse range of the step-requiring pushes (default 0.13 0.25)")
     args = parser.parse_args()
     wrapper = args.wrapper or ("dummy" if args.n_envs == 1 else "subproc")
     result = run_training(args.output, args.device, args.condition, args.seed,
@@ -599,7 +611,9 @@ def main() -> None:
                           args.network_width, args.body, args.mode,
                           args.max_push_impulse, args.init_checkpoint,
                           args.hard_push_fraction, args.posture_weight, args.resume,
-                          args.log_std, args.capture_point_weight)
+                          args.log_std, args.capture_point_weight, args.posture_version,
+                          args.natural_stance,
+                          tuple(args.hard_push_range) if args.hard_push_range else None)
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
