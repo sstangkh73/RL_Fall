@@ -295,7 +295,7 @@ def run_training(
     body: str = "v0_1", mode: str = "task", max_push_impulse: float = 0.45,
     init_checkpoint: Path | None = None, hard_push_fraction: float = 0.0,
     posture_weight: float = 0.0, resume_dir: Path | None = None,
-    log_std: float | None = None,
+    log_std: float | None = None, capture_point_weight: float = 0.0,
 ) -> dict[str, object]:
     if environment not in ("planar", "3d"):
         raise ValueError("environment must be planar or 3d")
@@ -303,7 +303,8 @@ def run_training(
         raise ValueError("body and mode options apply to the 3d environment only")
     env_kwargs = (
         {"body": body, "mode": mode, "max_push_impulse": max_push_impulse,
-         "hard_push_fraction": hard_push_fraction, "posture_weight": posture_weight}
+         "hard_push_fraction": hard_push_fraction, "posture_weight": posture_weight,
+         "capture_point_weight": capture_point_weight}
         if environment == "3d" else None
     )
     # Task-mode evaluation keeps the benchmark's impaired condition-B scenarios;
@@ -518,6 +519,7 @@ def run_training(
             "network_width": network_width,
             "body": body, "mode": mode, "max_push_impulse": max_push_impulse,
             "hard_push_fraction": hard_push_fraction, "posture_weight": posture_weight,
+            "capture_point_weight": capture_point_weight,
             "gamma": gamma, "norm_reward": norm_reward,
             "init_checkpoint": str(init_checkpoint) if init_checkpoint else None,
             "resumed_from_update": resumed_from, "log_std_override": log_std,
@@ -586,6 +588,8 @@ def main() -> None:
                         help="continue an interrupted run directory from its newest checkpoint")
     parser.add_argument("--log-std", type=float, default=None,
                         help="reset the policy log-std after loading --init-checkpoint")
+    parser.add_argument("--capture-point-weight", type=float, default=0.0,
+                        help="bonus for post-push foot landings near the capture point")
     args = parser.parse_args()
     wrapper = args.wrapper or ("dummy" if args.n_envs == 1 else "subproc")
     result = run_training(args.output, args.device, args.condition, args.seed,
@@ -595,7 +599,7 @@ def main() -> None:
                           args.network_width, args.body, args.mode,
                           args.max_push_impulse, args.init_checkpoint,
                           args.hard_push_fraction, args.posture_weight, args.resume,
-                          args.log_std)
+                          args.log_std, args.capture_point_weight)
     print(json.dumps(result, indent=2, sort_keys=True))
 
 

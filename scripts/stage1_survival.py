@@ -99,7 +99,9 @@ def curve(kwargs: dict[str, object], policy: tuple[PPO, Path] | None,
                                2.0 * np.pi * (index % directions) / directions)
                    for index in range(scenarios)]
         survival.append(sum(alive for alive, _ in results) / scenarios)
-        stepping.append(sum(steps > 0 for _, steps in results) / scenarios)
+        # Feet also lift while the body topples, so count steps only in survived episodes.
+        survivors = [steps for alive, steps in results if alive]
+        stepping.append(sum(steps > 0 for steps in survivors) / max(len(survivors), 1))
     return {"survival": survival, "step_rate": stepping}
 
 
@@ -129,7 +131,7 @@ def main() -> None:
         rows[f"update_{update}"] = curve(kwargs, (model, normalizer),
                                         args.directions, args.repeats, tuple(args.impulses))
     (args.run_dir / args.output).write_text(json.dumps(rows, indent=2), encoding="utf-8")
-    print(f"body {kwargs['body']}; survival (stepping episodes) per impulse")
+    print(f"body {kwargs['body']}; survival (share of survivors that stepped) per impulse")
     print("impulse".ljust(14), " ".join(f"{i:>11.2f}" for i in args.impulses))
     for name, values in rows.items():
         if isinstance(values, dict):

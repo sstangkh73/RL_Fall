@@ -95,6 +95,11 @@ ANKLE_KP = 150.0
 ANKLE_KD = 5.0
 # Pushes beyond the feet-in-place limit (~0.127 for v0.2) that need a step.
 HARD_PUSH_RANGE = (0.13, 0.25)
+# Capture-point shaping: a bonus when a swing foot lands near the instantaneous
+# capture point CoM + v / omega0 after the push (Hof 2005; Poddar et al. 2026).
+CAPTURE_SIGMA_M = 0.10
+CAPTURE_MIN_AIR_STEPS = 4      # 0.08 s airborne before a landing counts as a step
+CAPTURE_MAX_REWARDED_STEPS = 3
 FALL_TORSO_HEIGHT_M = 0.45
 FALL_UPRIGHT_COS = 0.5
 
@@ -120,6 +125,7 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         max_push_impulse: float = 0.45,
         hard_push_fraction: float = 0.0,
         posture_weight: float = 0.0,
+        capture_point_weight: float = 0.0,
     ) -> None:
         super().__init__()
         condition = condition.upper()
@@ -139,6 +145,7 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         # Curriculum step (a): penalise changing the foot placement before the push,
         # so the policy cannot pre-widen its stance and must step reactively.
         self.posture_weight = float(posture_weight)
+        self.capture_point_weight = float(capture_point_weight)
         self.body_height = BODY_HEIGHT_M.get(body, 1.2)
         self.body = body
         self.mode = mode
@@ -234,6 +241,9 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         )
         self.sole_geom_ids = soles if len(soles) == 2 else []
         self._nominal_feet = np.zeros(2)
+        self._foot_air_steps = [0, 0]
+        self._rewarded_steps = 0
+        self._previous_com = np.zeros(3)
 
         self.action_space = spaces.Box(-1.0, 1.0, shape=(n_joints,), dtype=np.float32)
         # joint angle/velocity 2n, base velocity 6, body gravity 3, task one-hot 2,
@@ -390,6 +400,9 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         self.fallen = False
         if self.sole_geom_ids:
             self._nominal_feet = self._feet_vector()
+        self._foot_air_steps = [0, 0]
+        self._rewarded_steps = 0
+        self._previous_com = self.data.subtree_com[1].copy()
         self.task.reset(self._torso_xyz())
         self._last_task_distance = self.task.distance(
             self._torso_xyz(), self._hand_xyz()
@@ -530,6 +543,8 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
             drift = float(np.linalg.norm(self._feet_vector() - self._nominal_feet))
             posture_penalty = self.posture_weight * min(1.0, (drift / 0.10) ** 2)
             reward -= posture_penalty
+        capture_bonus = self._capture_point_bonus() if not self.fallen else 0.0
+        reward += capture_bonus
         self.previous_action[:] = action
         self.elapsed_steps += 1
         terminated = self.fallen or self.elapsed_steps >= self.config.max_episode_steps
@@ -540,9 +555,37 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         info["reward_damage_penalty"] = 0.0
         info["reward_balance"] = reward
         info["posture_penalty"] = posture_penalty
+        info["capture_point_bonus"] = capture_bonus
         info["fallen"] = self.fallen
         info["push_impulse"] = self.push_impulse
         return observation, reward, terminated, False, info
+
+    def _capture_point_bonus(self) -> float:
+        """Reward the first few post-push landings by distance to the capture point."""
+        com = self.data.subtree_com[1].copy()
+        velocity = (com - self._previous_com) / self.config.control_dt
+        self._previous_com = com
+        if self.capture_point_weight <= 0.0 or not self.sole_geom_ids:
+            return 0.0
+        touching = set()
+        for index in range(self.data.ncon):
+            contact = self.data.contact[index]
+            touching.update((int(contact.geom1), int(contact.geom2)))
+        omega0 = np.sqrt(9.81 / max(float(com[2]), 0.1))
+        capture_point = com[:2] + velocity[:2] / omega0
+        bonus = 0.0
+        after_push = float(self.data.time) >= self.push_start
+        for side, geom in enumerate(self.sole_geom_ids):
+            if geom not in touching:
+                self._foot_air_steps[side] += 1
+                continue
+            landed = self._foot_air_steps[side] >= CAPTURE_MIN_AIR_STEPS
+            self._foot_air_steps[side] = 0
+            if landed and after_push and self._rewarded_steps < CAPTURE_MAX_REWARDED_STEPS:
+                distance = float(np.linalg.norm(self.data.geom_xpos[geom][:2] - capture_point))
+                bonus += self.capture_point_weight * np.exp(-(distance / CAPTURE_SIGMA_M) ** 2)
+                self._rewarded_steps += 1
+        return bonus
 
     def _get_observation(self, sample_sensor: bool) -> np.ndarray:
         rotation = self.data.xmat[self.torso_body_id].reshape(3, 3)

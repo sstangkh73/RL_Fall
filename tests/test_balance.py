@@ -148,3 +148,21 @@ def test_posture_term_penalises_foot_drift_before_the_push():
     env._nominal_feet = env._nominal_feet + np.array([0.2, 0.0])  # pretend feet moved 20 cm
     _, _, _, _, info = env.step(np.zeros(69, dtype=np.float32))
     assert info["posture_penalty"] == 2.0
+
+
+def test_capture_point_bonus_rewards_post_push_landing_near_capture_point():
+    env = RLFall3DEnv(condition="A", seed=15, body="v1_0", mode="balance",
+                      max_push_impulse=0.0, capture_point_weight=10.0)
+    env.reset(seed=15)
+    for _ in range(10):                       # let both feet settle onto the floor
+        env.step(np.zeros(69, dtype=np.float32))
+    env.push_start = 0.0                      # treat the rest of the episode as post-push
+    left, _ = env.sole_geom_ids
+    env._foot_air_steps[0] = 10               # left foot was swinging
+    com = env.data.subtree_com[1].copy()
+    env._previous_com = com.copy()            # zero velocity: capture point = CoM
+    env.data.geom_xpos[left][:2] = com[:2]    # land exactly on the capture point
+    assert env._capture_point_bonus() == 10.0
+    env._foot_air_steps[0] = 10
+    env._rewarded_steps = 3                   # only the first three landings pay
+    assert env._capture_point_bonus() == 0.0

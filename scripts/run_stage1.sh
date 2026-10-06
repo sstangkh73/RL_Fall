@@ -11,6 +11,7 @@
 #   INIT_CHECKPOINT  continue from an existing policy instead of training from scratch
 #   LOG_STD  reset the policy log-std after loading INIT_CHECKPOINT (first level only)
 #   TAG  suffix for the output directory, to keep repeated settings apart
+#   CP  weight of the post-push capture-point landing bonus (default 0)
 set -euo pipefail
 
 SEED="${1:-61001}"
@@ -22,6 +23,7 @@ EVERY="${EVERY:-25}"  # balance updates are 16,384 transitions each
 BODY="${BODY:-v0_2}"
 HARD="${HARD:-0}"
 POSTURE="${POSTURE:-0}"
+CP="${CP:-0}"
 TAG="${TAG:-}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="${PY:-$HOME/venvs/rl_fall/bin/python}"
@@ -51,6 +53,7 @@ for LEVEL in "${LEVELS[@]}"; do
         echo "=== $(date '+%F %T') S1 body=$BODY seed=$SEED push<=$LEVEL hard=$HARD posture=$POSTURE updates=$UPDATES ${START[*]}"
         "$PY" -m rl_fall.train --environment 3d --body "$BODY" --mode balance \
             --hard-push-fraction "$HARD" --posture-weight "$POSTURE" \
+            --capture-point-weight "$CP" \
             --condition A --max-push-impulse "$LEVEL" --stage S1_balance \
             --device cpu --seed "$SEED" --n-envs 8 --threads 4 \
             --warmup-updates 0 --measured-updates "$UPDATES" --evaluation-scenarios 64 \
