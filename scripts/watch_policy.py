@@ -50,6 +50,7 @@ def env_kwargs_for(checkpoint: Path) -> dict[str, object]:
         "body": data.get("body", "v0_2"),
         "mode": data.get("mode", "balance"),
         "max_push_impulse": float(data.get("max_push_impulse", 0.12)),
+        **({"natural_stance": True} if data.get("natural_stance") else {}),
     }
 
 
