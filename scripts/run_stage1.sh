@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # Curriculum stage 1 (balance): train through increasing push levels, each level
-# continuing from the previous level's final checkpoint.
-# Usage: [BODY=v0_3] [HARD=0.5] [INIT_CHECKPOINT=path.zip] scripts/run_stage1.sh [seed] [updates-per-level] [levels...]
+# continuing from the previous level's final checkpoint. Safe to rerun after an
+# interruption: complete levels are skipped and an interrupted level resumes from
+# its newest periodic checkpoint.
+# Usage: [BODY=v0_3] [HARD=0.5] [POSTURE=2.0] [INIT_CHECKPOINT=path.zip] [LOG_STD=-1.6] [TAG=name]
+#        scripts/run_stage1.sh [seed] [updates-per-level] [levels...]
 #   BODY  body version (default v0_2)
 #   HARD  share of pushes drawn from the step-requiring range (default 0)
-#   INIT_CHECKPOINT  continue from an existing policy instead of training from scratch
 #   POSTURE  weight of the pre-push foot-placement penalty (default 0)
+#   INIT_CHECKPOINT  continue from an existing policy instead of training from scratch
+#   LOG_STD  reset the policy log-std after loading INIT_CHECKPOINT (first level only)
+#   TAG  suffix for the output directory, to keep repeated settings apart
 set -euo pipefail
 
 SEED="${1:-61001}"
@@ -17,6 +22,7 @@ EVERY="${EVERY:-25}"  # balance updates are 16,384 transitions each
 BODY="${BODY:-v0_2}"
 HARD="${HARD:-0}"
 POSTURE="${POSTURE:-0}"
+TAG="${TAG:-}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="${PY:-$HOME/venvs/rl_fall/bin/python}"
 if [ "$BODY" = "v0_2" ]; then OUT="results/stage1/seed_${SEED}"
@@ -27,18 +33,31 @@ mkdir -p "$OUT"
 
 INIT=()
 if [ -n "${INIT_CHECKPOINT:-}" ]; then INIT=(--init-checkpoint "$INIT_CHECKPOINT"); fi
+STD=()
+if [ -n "${LOG_STD:-}" ]; then STD=(--log-std "$LOG_STD"); fi
 for LEVEL in "${LEVELS[@]}"; do
     LEVEL_OUT="$OUT/push_${LEVEL}"
     if [ "$HARD" != "0" ]; then LEVEL_OUT="${LEVEL_OUT}_hard${HARD}"; fi
     if [ "$POSTURE" != "0" ]; then LEVEL_OUT="${LEVEL_OUT}_posture${POSTURE}"; fi
-    echo "=== $(date '+%F %T') S1 body=$BODY seed=$SEED push<=$LEVEL hard=$HARD posture=$POSTURE updates=$UPDATES ${INIT[*]:-from scratch}"
-    "$PY" -m rl_fall.train --environment 3d --body "$BODY" --mode balance \
-        --hard-push-fraction "$HARD" --posture-weight "$POSTURE" \
-        --condition A --max-push-impulse "$LEVEL" --stage S1_balance \
-        --output "$LEVEL_OUT" --device cpu --seed "$SEED" --n-envs 8 --threads 4 \
-        --warmup-updates 0 --measured-updates "$UPDATES" --evaluation-scenarios 64 \
-        --checkpoint-updates $(seq 0 "$EVERY" "$UPDATES") "${INIT[@]}" > "$LEVEL_OUT.log" 2>&1
-    RUN_DIR="$(ls -td "$LEVEL_OUT"/3d_* | head -1)"
+    if [ -n "$TAG" ]; then LEVEL_OUT="${LEVEL_OUT}_${TAG}"; fi
+    RUN_DIR="$(ls -td "$LEVEL_OUT"/3d_* 2>/dev/null | head -1 || true)"
+    if [ -n "$RUN_DIR" ] && grep -q '"status": "complete"' "$RUN_DIR/manifest.json" 2>/dev/null; then
+        echo "=== $(date '+%F %T') S1 body=$BODY seed=$SEED push<=$LEVEL already complete: $RUN_DIR"
+    else
+        START=(--output "$LEVEL_OUT" "${INIT[@]}" "${STD[@]}")
+        if [ -n "$RUN_DIR" ] && ls "$RUN_DIR"/checkpoint_update_*.zip > /dev/null 2>&1; then
+            START=(--resume "$RUN_DIR")
+        fi
+        echo "=== $(date '+%F %T') S1 body=$BODY seed=$SEED push<=$LEVEL hard=$HARD posture=$POSTURE updates=$UPDATES ${START[*]}"
+        "$PY" -m rl_fall.train --environment 3d --body "$BODY" --mode balance \
+            --hard-push-fraction "$HARD" --posture-weight "$POSTURE" \
+            --condition A --max-push-impulse "$LEVEL" --stage S1_balance \
+            --device cpu --seed "$SEED" --n-envs 8 --threads 4 \
+            --warmup-updates 0 --measured-updates "$UPDATES" --evaluation-scenarios 64 \
+            --checkpoint-updates $(seq 0 "$EVERY" "$UPDATES") "${START[@]}" >> "$LEVEL_OUT.log" 2>&1
+        RUN_DIR="$(ls -td "$LEVEL_OUT"/3d_* | head -1)"
+    fi
     INIT=(--init-checkpoint "$RUN_DIR/checkpoint.zip")
+    STD=()
 done
 echo "=== $(date '+%F %T') S1 body=$BODY seed=$SEED done"

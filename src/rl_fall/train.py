@@ -205,6 +205,41 @@ def load_or_create_initial_weights(model: PPO, path: Path) -> str:
     return _sha256(path)
 
 
+def _latest_checkpoint_update(run_dir: Path) -> int | None:
+    updates = [int(path.stem.rsplit("_", 1)[1])
+               for path in run_dir.glob("checkpoint_update_*.zip")]
+    return max(updates) if updates else None
+
+
+def _logs_up_to(
+    run_dir: Path, update: int
+) -> tuple[list[dict[str, float | int | str]], list[dict[str, object]]]:
+    """Rows logged before an interruption, cut back to the resume checkpoint."""
+    rows: list[dict[str, float | int | str]] = []
+    path = run_dir / "updates.csv"
+    if path.exists():
+        with path.open(newline="", encoding="utf-8") as stream:
+            for row in list(csv.DictReader(stream))[:update]:
+                parsed: dict[str, float | int | str] = {}
+                for key, value in row.items():
+                    try:
+                        parsed[key] = int(value)
+                    except ValueError:
+                        try:
+                            parsed[key] = float(value)
+                        except ValueError:
+                            parsed[key] = value
+                rows.append(parsed)
+    if len(rows) != update:
+        raise ValueError(f"updates.csv has {len(rows)} rows, expected {update} to resume")
+    evaluations_path = run_dir / "evaluations.json"
+    evaluations = []
+    if evaluations_path.exists():
+        evaluations = [row for row in json.loads(evaluations_path.read_text(encoding="utf-8"))
+                       if row["update"] <= update]
+    return rows, evaluations
+
+
 def evaluate(
     model: PPO, training_env: VecNormalize, seed: int, scenarios: int = 8,
     environment: str = "planar", env_kwargs: dict[str, object] | None = None,
@@ -259,7 +294,8 @@ def run_training(
     environment: str = "planar", network_width: int | None = None,
     body: str = "v0_1", mode: str = "task", max_push_impulse: float = 0.45,
     init_checkpoint: Path | None = None, hard_push_fraction: float = 0.0,
-    posture_weight: float = 0.0,
+    posture_weight: float = 0.0, resume_dir: Path | None = None,
+    log_std: float | None = None,
 ) -> dict[str, object]:
     if environment not in ("planar", "3d"):
         raise ValueError("environment must be planar or 3d")
@@ -290,15 +326,29 @@ def run_training(
     if checkpoint_updates and evaluation_scenarios <= 0:
         raise ValueError("checkpoint evaluation requires evaluation_scenarios > 0")
     torch.set_num_threads(threads)
-    torch.set_num_interop_threads(1)
+    try:
+        torch.set_num_interop_threads(1)
+    except RuntimeError:
+        pass  # only settable once per process; already fixed by an earlier run
     n_steps = rollout // n_envs
-    run_id = (
-        f"{environment}_{condition}_env{n_envs}_{wrapper}_{device}_seed{seed}_t{threads}_"
-        f"{time.strftime('%Y%m%dT%H%M%S')}"
-    )
-    run_dir = output_dir / run_id
-    run_dir.mkdir(parents=True, exist_ok=False)
-    source_sha256 = snapshot_source(run_dir, environment)
+    resumed_from = None
+    if resume_dir is not None:
+        # Continue an interrupted run in place from its newest periodic checkpoint.
+        run_dir = resume_dir
+        run_id = run_dir.name
+        resumed_from = _latest_checkpoint_update(run_dir)
+        if resumed_from is None:
+            raise ValueError(f"no checkpoint_update_*.zip to resume in {run_dir}")
+        init_checkpoint = run_dir / f"checkpoint_update_{resumed_from}.zip"
+        source_sha256 = snapshot_source(run_dir / f"resume_{resumed_from}", environment)
+    else:
+        run_id = (
+            f"{environment}_{condition}_env{n_envs}_{wrapper}_{device}_seed{seed}_t{threads}_"
+            f"{time.strftime('%Y%m%dT%H%M%S')}"
+        )
+        run_dir = output_dir / run_id
+        run_dir.mkdir(parents=True, exist_ok=False)
+        source_sha256 = snapshot_source(run_dir, environment)
     telemetry = ResourceSampler(run_dir / "resources.jsonl")
     status, failure = "failed", None
     env: VecEnv | None = None
@@ -320,6 +370,10 @@ def run_training(
             saved = VecNormalize.load(str(normalizer), env.venv)
             env.obs_rms, env.ret_rms = saved.obs_rms, saved.ret_rms
             weights_hash = _sha256(init_checkpoint)
+            if log_std is not None and resumed_from is None:
+                # A new curriculum phase may restart exploration at a chosen noise level.
+                with torch.no_grad():
+                    model.policy.log_std.fill_(log_std)
         else:
             # Curriculum modes start with smaller exploration noise (std ~0.37).
             model = create_model(env, device, seed, n_steps, network_width,
@@ -345,16 +399,23 @@ def run_training(
         startup_seconds = time.perf_counter() - startup_start
         update_rows: list[dict[str, float | int | str]] = []
         evaluation_rows: list[dict[str, object]] = []
+        if resumed_from is not None:
+            update_rows, evaluation_rows = _logs_up_to(run_dir, resumed_from)
         # Rows are flushed as they complete so long runs keep their logs if interrupted.
         updates_stream = (run_dir / "updates.csv").open("w", newline="", encoding="utf-8")
         updates_writer: csv.DictWriter | None = None
+        if update_rows:
+            updates_writer = csv.DictWriter(updates_stream, fieldnames=list(update_rows[0]))
+            updates_writer.writeheader()
+            updates_writer.writerows(update_rows)
+            updates_stream.flush()
 
         def write_evaluations() -> None:
             (run_dir / "evaluations.json").write_text(
                 json.dumps(evaluation_rows, indent=2, sort_keys=True), encoding="utf-8"
             )
 
-        if 0 in checkpoint_updates:
+        if 0 in checkpoint_updates and resumed_from is None:
             model.save(run_dir / "checkpoint_update_0")
             env.save(run_dir / "vecnormalize_update_0.pkl")
             eval_start = time.perf_counter()
@@ -365,8 +426,12 @@ def run_training(
                 "metrics": metrics,
             })
             write_evaluations()
+        planned = 0
         for phase, count in (("warmup", warmup_updates), ("steady", measured_updates)):
             for phase_update in range(count):
+                planned += 1
+                if planned <= len(update_rows):
+                    continue  # finished before the interruption
                 synchronize(device)
                 begin = time.perf_counter()
                 callback = UpdateMetricsCallback()
@@ -455,6 +520,7 @@ def run_training(
             "hard_push_fraction": hard_push_fraction, "posture_weight": posture_weight,
             "gamma": gamma, "norm_reward": norm_reward,
             "init_checkpoint": str(init_checkpoint) if init_checkpoint else None,
+            "resumed_from_update": resumed_from, "log_std_override": log_std,
             "n_envs": n_envs, "n_steps_per_env": n_steps, "wrapper": wrapper,
             "learner_threads": threads, "seed": seed,
             "warmup_updates": warmup_updates, "measured_updates": measured_updates,
@@ -516,6 +582,10 @@ def main() -> None:
                         help="share of pushes drawn from the step-requiring range")
     parser.add_argument("--posture-weight", type=float, default=0.0,
                         help="penalty weight for foot-placement drift before the push")
+    parser.add_argument("--resume", type=Path, default=None,
+                        help="continue an interrupted run directory from its newest checkpoint")
+    parser.add_argument("--log-std", type=float, default=None,
+                        help="reset the policy log-std after loading --init-checkpoint")
     args = parser.parse_args()
     wrapper = args.wrapper or ("dummy" if args.n_envs == 1 else "subproc")
     result = run_training(args.output, args.device, args.condition, args.seed,
@@ -524,7 +594,8 @@ def main() -> None:
                           tuple(args.checkpoint_updates), args.environment,
                           args.network_width, args.body, args.mode,
                           args.max_push_impulse, args.init_checkpoint,
-                          args.hard_push_fraction, args.posture_weight)
+                          args.hard_push_fraction, args.posture_weight, args.resume,
+                          args.log_std)
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
