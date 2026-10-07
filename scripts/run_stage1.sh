@@ -12,7 +12,8 @@
 #   LOG_STD  reset the policy log-std after loading INIT_CHECKPOINT (first level only)
 #   TAG  suffix for the output directory, to keep repeated settings apart
 #   CP  weight of the post-push capture-point landing bonus (default 0)
-#   POSTURE_VERSION  1 = any foot drift penalised, 2 = natural stance rule (default 1)
+#   POSTURE_VERSION  1 = any foot drift penalised, 2 = natural stance rule,
+#                    3 = natural stance, cost keeps growing but reward stays positive (default 1)
 #   NATURAL  1 = start from a randomised relaxed stance (default 0)
 #   HARD_RANGE  "lo hi" impulse range of the step-requiring pushes (default 0.13 0.25)
 set -euo pipefail

@@ -190,3 +190,18 @@ def test_natural_posture_rule_allows_relaxed_drift_and_penalises_bracing():
     assert abs(env._bracing_score(0.18, 1.0) - 1.0) < 1e-9  # 18 cm wide stance is penalised
     env._reference_com_height += 0.08                  # as if the CoM dropped 8 cm
     assert env._bracing_score(0.0, 1.0) > 0.9          # crouching is penalised
+
+
+def test_v3_posture_cost_keeps_growing_past_the_dead_zone_and_reward_stays_positive():
+    penalties = []
+    for drift in (0.05, 0.09, 0.12, 0.18, 0.30, 0.50, 1.00):
+        env = RLFall3DEnv(condition="A", seed=17, body="v1_0", mode="balance",
+                          max_push_impulse=0.0, posture_weight=1.0, posture_version=3)
+        env.reset(seed=17)
+        env._nominal_feet = env._nominal_feet + np.array([drift, 0.0])  # pretend feet moved
+        _, reward, _, _, info = env.step(np.zeros(69, dtype=np.float32))
+        assert not info["fallen"] and reward > 0.0
+        penalties.append(info["posture_penalty"])
+    assert penalties[0] < 1e-3                         # within the 8 cm dead zone: free
+    assert all(b > a for a, b in zip(penalties, penalties[1:]))  # every extra cm costs more
+    assert penalties[4] > 1.0                          # 30 cm costs more than v2's cap (1.0)

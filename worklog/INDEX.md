@@ -1,0 +1,2 @@
+- 2026-10-08 — verify ตาม GOAL + run-loop ใช้ WSL ไม่จำกัดเวลา — Done — [plan](2026-10-08-loop-full-access-verify/plan.md) · [report](2026-10-08-loop-full-access-verify/report.md)
+- 2026-10-08 — เขียน GOAL.md ของ auto-loop ใหม่ — Done — [plan](2026-10-08-rewrite-loop-goal/plan.md) · [report](2026-10-08-rewrite-loop-goal/report.md)

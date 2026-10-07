@@ -1,0 +1,6 @@
+.loop/
+STOP
+WAIT_FOR_JOBS
+__pycache__/
+reports/jobs/*.log
+reports/jobs/*.heartbeat

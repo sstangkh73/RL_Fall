@@ -1,0 +1,41 @@
+# Progress
+
+ความจำของ AI ระหว่างรอบ AI จะเขียนต่อท้ายไฟล์นี้ทุกรอบ
+
+## สถานะเริ่มต้น (8 ต.ค. 2026, เขียนโดยคน + Claude ก่อนเริ่มลูป)
+
+- ผลทำซ้ำ 3 seeds ของ recipe v1.0 (7 ต.ค.) ยังไม่ผ่าน M1:
+  seed 63001 เท้าเลื่อน 7.9 ซม., 63002 เท้าเลื่อน 29.8 ซม., 63003 เท้าเลื่อน 8.4 ซม. (เกณฑ์ ≤ 8 ซม.)
+- สาเหตุของ 63002 ที่บันทึกไว้: บทลงโทษท่ายืนรวมถูกจำกัดไว้ที่ 1.0 ต่อ step (ดูส่วน "Natural-stance rule" ใน `src/rl_fall/env3d.py`)
+  พอเท้าเลื่อนเกิน ~18 ซม. บทลงโทษก็ไม่เพิ่มอีก
+- ขั้น A, B และ CP ของ recipe (`scripts/run_stage1_v1_recipe.sh`) ไม่ใช้กติกายืนสบาย ถ้าแก้แค่ส่วนนั้น
+  อาจเริ่มใหม่ที่ R1 จาก checkpoint CP เดิมใน `~/RL_Fall/results/stage1_v1_0/seed_*/push_0.12_hard0.5_posture2.0_cp10/` ได้ (ต้องตรวจสอบก่อน)
+- clone ใน WSL (`~/RL_Fall`) ตามหลัง `C:\RL_Fall` แต่ `wsl-job.ps1` copy โค้ดให้ก่อนรันทุกครั้ง
+
+## Log
+
+### รอบ 2026-10-08 02:15
+- **ทำอะไร (M1, ทำเอง):** เพิ่ม `posture_version=3` ใน `src/rl_fall/env3d.py`
+  - เท้าเลื่อนเกิน dead zone 8 ซม. คิดคะแนนแบบเชิงเส้น ไม่ใช่กำลังสองแบบ v2 จึงมีต้นทุนตั้งแต่ 9 ซม.
+    ส่วน crouch และ lean ยังเป็นกำลังสองแบบเดิม
+  - penalty = reward_ก่อนหัก × s/(s+0.5) โดย s = weight × score ต้นทุนจึงเพิ่มขึ้นทุกเซนติเมตร
+    แต่ไม่ถึง 100% ของ reward ทำให้ reward ต่อ step ยังเป็นบวกเสมอ
+    (เทียบกับ v2: ที่ 30 ซม. v3 หักประมาณ 1.2 ส่วน v2 หัก 1.0 คงที่ตั้งแต่ 18 ซม.)
+  - ไม่แก้ v1/v2 เพราะต้องให้ผลเดิมทำซ้ำได้ เพิ่ม choice 3 ใน `train.py --posture-version`
+  - เพิ่ม test `test_v3_posture_cost_keeps_growing_past_the_dead_zone_and_reward_stays_positive`
+    ใน `tests/test_balance.py` ใช้ drift 5, 9, 12, 18, 30, 50, 100 ซม. แล้วเช็กว่า penalty เพิ่มขึ้นทุกจุด, reward > 0 และที่ 30 ซม. penalty > 1.0
+  - `scripts/run_stage1_v1_recipe.sh`: R1/R2 เปลี่ยนเป็น v3 และใช้ TAG `natural3_r1`/`natural3_r2` ส่วน run v2 เดิมยังเก็บไว้
+    A/B/CP complete แล้วทั้ง 3 seeds (ตรวจ manifest แล้ว) จึงข้ามขั้นนั้นและเริ่ม R1 จาก CP checkpoint เดิม
+- **verify:** pytest ผ่านทั้งหมด ส่วน goal ยัง FAIL (ยังไม่มี milestone files)
+- **job ที่สั่ง:**
+  - `20261008-021340-m1v3_a` = `bash scripts/run_stage1_v1_recipe.sh 63002 63001`
+  - `20261008-021342-m1v3_b` = `bash scripts/run_stage1_v1_recipe.sh 63003`
+  - คาดว่าใช้ ~1–1.5 ชม. ต่อ seed (R1+R2 = 400 updates × 16,384 ≈ 6.6M transitions ที่ ~2,400/s ≈ 46 นาที
+    บวก survival eval) job a มี 2 seeds จึงคาดว่าใช้ ~2–3 ชม.
+- **job ที่จบ:** ไม่มี
+- **ปัญหา:** ยังไม่มี ข้อสังเกต: seed 63003 (v2) เท้าเลื่อน 8.4 ซม. ซึ่งอยู่แค่ขอบ dead zone
+  ใน v2 ส่วนนี้แทบไม่มีต้นทุนเพราะคิดแบบกำลังสอง ส่วน v3 คิดแบบเชิงเส้นจึงน่าจะดันให้ต่ำกว่า 8 ซม.
+  ถ้า median ยังเกิน 8 ซม. อาจต้องเริ่มคิดต้นทุนก่อนถึง 8 ซม. หรือเพิ่ม weight
+- **งานถัดไป:** พอ job จบ ให้อ่าน `survival_curve.json` ของ run `natural3_r2` ทุก seed (stance_200, update_200 ที่ 0.08/0.10/0.12)
+  บันทึกลง `planning/Curriculum_Plan_TH.md` ถ้าผ่านให้เขียน `auto-loop/milestones/m1_runs.json`
+  ระหว่างรอ ถ้ามีรอบว่าง ให้เตรียม M2 ได้ (env S2: weighted damage, รันต่อหลังล้ม และสคริปต์ s2_eval)
