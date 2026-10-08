@@ -205,3 +205,30 @@ def test_v3_posture_cost_keeps_growing_past_the_dead_zone_and_reward_stays_posit
     assert penalties[0] < 1e-3                         # within the 8 cm dead zone: free
     assert all(b > a for a, b in zip(penalties, penalties[1:]))  # every extra cm costs more
     assert penalties[4] > 1.0                          # 30 cm costs more than v2's cap (1.0)
+
+
+def test_v4_posture_cost_returns_after_the_push_settles_from_re_anchored_feet():
+    def run(version):
+        env = RLFall3DEnv(condition="A", seed=18, body="v1_0", mode="balance",
+                          max_push_impulse=0.0, posture_weight=1.0, posture_version=version)
+        env.reset(seed=18)
+        settle = env.push_start + env.push_duration + 1.5
+        rows = []
+        while float(env.data.time) < settle + 0.2:
+            during = env.push_start <= float(env.data.time) < settle
+            if during:
+                env._nominal_feet = env._feet_vector() + np.array([0.30, 0.0])  # a recovery step
+            _, _, _, _, info = env.step(np.zeros(69, dtype=np.float32))
+            assert not info["fallen"]
+            rows.append((during, info["posture_penalty"]))
+        return env, rows
+
+    env3, rows3 = run(3)
+    env4, rows4 = run(4)
+    assert all(p == 0.0 for during, p in rows4 if during)  # recovery window is free
+    assert all(p == 0.0 for _, p in rows3[-5:])             # v3: free forever after the push
+    assert env4._feet_reanchored                            # v4 re-anchored the feet...
+    assert all(p < 1e-3 for _, p in rows4[-5:])             # ...so the 30 cm step costs nothing
+    env4._nominal_feet = env4._feet_vector() + np.array([0.20, 0.0])  # then shuffle 20 cm
+    _, reward, _, _, info = env4.step(np.zeros(69, dtype=np.float32))
+    assert info["posture_penalty"] > 0.0 and reward > 0.0   # post-settle drift costs again

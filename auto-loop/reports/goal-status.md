@@ -1,4 +1,4 @@
-# Goal status (2026-10-08 02:13:16)
+# Goal status (2026-10-08 09:25:11)
 
 ## FAIL — M1 — S1 gate (natural stance + reactive survival, 3 seeds)
 - ✗ m1_runs.json not found: /mnt/c/RL_Fall/auto-loop/milestones/m1_runs.json

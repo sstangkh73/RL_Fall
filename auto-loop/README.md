@@ -28,7 +28,9 @@ run-loop.ps1 ──► claude -p (อ่าน PROMPT.md, ทำงานที�
 | `reports/loop-report.md`, `iterations.csv` | เวลาและผลของทุกรอบ | ลูป |
 | `reports/jobs.md`, `reports/jobs/` | เวลา, log และสถานะของทุก job | ลูป |
 | `reports/goal-status.md` | สถานะ M1–M4 ล่าสุด | verify |
-| `.loop/` | output ของ Claude แต่ละรอบและผล verify ล่าสุด | ลูป |
+| `reports/codex.md` | ทุกครั้งที่สั่ง Codex: Claude สั่งอะไร, Codex รันคำสั่งอะไร, ตอบอะไร, ใช้เวลาเท่าไร | codex.sh |
+| `.loop/iter-NNN.log` | ทุกอย่างที่ Claude ทำในรอบนั้น: ข้อความ, tool ที่เรียก, ผลย่อ, ค่าใช้จ่าย | ลูป |
+| `.loop/iter-NNN.jsonl` | event ดิบจาก `claude --output-format stream-json` | ลูป |
 | `examples/bahttext/` | งานตัวอย่างเดิมของเทมเพลต (ไม่ได้ใช้) | – |
 
 ## รัน
@@ -40,6 +42,8 @@ pwsh -File auto-loop/run-loop.ps1
 - **ไม่จำกัดเวลาและจำนวนรอบ** เป็นค่าเริ่มต้น ถ้าต้องการจำกัด ใส่ `-MaxHours 24` หรือ `-MaxIterations 30`
 - **หยุด:** สร้างไฟล์ `auto-loop/STOP` (หยุดก่อนรอบถัดไป และหยุดรอ job ด้วย) หรือกด Ctrl+C
   แต่ job ใน WSL จะรันต่อจนจบ ถ้าต้องการหยุด job ด้วย ให้ใช้ `wsl --shutdown`
+- **เห็นสดบนหน้าจอ:** ทุกข้อความของ Claude (`[Claude]`), ทุก tool ที่เรียก (`▶ Bash: ...`) พร้อมผลย่อ (`↳`),
+  งานที่สั่ง Codex (`[Claude → Codex]`) และคำตอบเต็มของ Codex (`[Codex → Claude]`) แล้วตอนจบรอบจะแสดงจำนวน turns และค่าใช้จ่าย
 - **ดูความคืบหน้า:** `reports/loop-report.md`, `reports/jobs.md`, `reports/goal-status.md`, `progress.md`
   และสถานะ job ใช้ `pwsh -NoProfile -File auto-loop/tools/jobs.ps1`
 - **ย้อนกลับ:** ลูป commit ทุกรอบลง branch `loop/research` ให้ใช้ `git log` หา commit ที่ต้องการ แล้ว `git reset --hard <commit>`

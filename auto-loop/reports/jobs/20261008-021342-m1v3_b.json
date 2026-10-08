@@ -1,1 +1,1 @@
-{"id": "20261008-021342-m1v3_b", "state": "running", "start": "2026-10-08T02:13:45+0700", "start_epoch": 1791400425, "end": null, "duration_s": null, "exit_code": null, "pid": 978}
+{"id": "20261008-021342-m1v3_b", "state": "done", "start": "2026-10-08T02:13:45+0700", "start_epoch": 1791400425, "end": "2026-10-08T07:14:21+0700", "duration_s": 18036, "exit_code": 0, "pid": 978}

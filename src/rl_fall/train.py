@@ -596,9 +596,10 @@ def main() -> None:
                         help="reset the policy log-std after loading --init-checkpoint")
     parser.add_argument("--capture-point-weight", type=float, default=0.0,
                         help="bonus for post-push foot landings near the capture point")
-    parser.add_argument("--posture-version", type=int, choices=(1, 2, 3), default=1,
+    parser.add_argument("--posture-version", type=int, choices=(1, 2, 3, 4), default=1,
                         help="1: penalise any foot drift; 2: natural stance (dead zone, crouch, lean); "
-                             "3: natural stance with an uncapped, never-negative cost")
+                             "3: natural stance with an uncapped, never-negative cost; "
+                             "4: v3 plus a foot-drift cost once settled after the push")
     parser.add_argument("--natural-stance", action="store_true",
                         help="start episodes from a randomised relaxed stance (spec bodies)")
     parser.add_argument("--hard-push-range", nargs=2, type=float, default=None,

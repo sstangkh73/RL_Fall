@@ -1,0 +1,1 @@
+bash scripts/run_stage1_v1_recipe.sh 63001 63002 63003 && for s in 63001 63002 63003; do R=$(ls -td results/stage1_v1_0/seed_$s/push_0.12_hard0.5_posture1.0_natural4_r2/3d_* | head -1); echo "== drift trace $s $R"; PYTHONPATH=src ~/venvs/rl_fall/bin/python scripts/diag_stance_drift.py $R --seconds 3.0 2>&1 | grep -v -i warn; done

@@ -21,10 +21,23 @@ start=$(date +%s)
 codex exec --sandbox danger-full-access -C "$root" --skip-git-repo-check --output-last-message "$last" "$1" >"$log" 2>&1
 code=$?
 
-echo "[codex exit=$code | $(( $(date +%s) - start ))s | full log: $log]"
-if [ -s "$last" ]; then
-  cat "$last"
-else
-  tail -n 80 "$log"
-fi
+dur=$(( $(date +%s) - start ))
+if [ -s "$last" ]; then reply=$(cat "$last"); else reply=$(tail -n 80 "$log"); fi
+# คำสั่ง shell ที่ Codex รันเอง (บรรทัดถัดจาก "exec" ใน log)
+ran=$(awk 'prev == "exec" { print } { prev = $0 }' "$log" | head -n 40)
+
+# บันทึกถาวรให้คนอ่าน: สั่งอะไร, Codex รันอะไร, ตอบอะไร
+report="$root/auto-loop/reports/codex.md"
+mkdir -p "$(dirname "$report")"
+[ -f "$report" ] || printf '# Codex calls\n\nทุกครั้งที่ Claude ในลูปสั่งงาน Codex ผ่าน tools/codex.sh\n' > "$report"
+{
+  printf '\n## %s  (exit %s, %ss)\n\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$code" "$dur"
+  printf '**Claude สั่ง:**\n\n````text\n%s\n````\n\n' "$1"
+  if [ -n "$ran" ]; then printf '**Codex รัน:**\n\n````text\n%s\n````\n\n' "$ran"; fi
+  printf '**Codex ตอบ:**\n\n%s\n\n' "$reply"
+  printf 'log เต็ม: `auto-loop/.loop/codex/%s.log`\n' "$ts"
+} >> "$report"
+
+echo "[codex exit=$code | ${dur}s | full log: $log]"
+printf '%s\n' "$reply"
 exit $code

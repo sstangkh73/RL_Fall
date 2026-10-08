@@ -116,6 +116,13 @@ NATURAL_LEAN_LIMIT_RAD = np.radians(10.0)
 # pre-penalty reward: the cost rises with every extra centimetre and the per-step
 # reward stays positive, so falling never becomes the better option.
 NATURAL_V3_HALF_SCORE = 0.5
+# posture_version 4: v3 before the push, plus a foot-drift cost once the body has
+# settled after it. v3 policies shuffled their feet without pause (drift ~5 cm at 1 s,
+# ~10 cm at 2 s, ~20 cm at 3 s with no push; 8 Oct) because the cost stopped at
+# push_start and the policy cannot see the time. Recovery steps stay free: the feet
+# are re-anchored where they are NATURAL_SETTLE_S after the push ends, and only
+# drift beyond that point costs (feet only; a wide recovery stance may lower the CoM).
+NATURAL_SETTLE_S = 1.5
 # Relaxed-stance start: pelvis shifted over one foot (both hips +/- 0.06 rad about x)
 # and feet set slightly wider or narrower (+/- per-hip spread).
 NATURAL_SHIFT_RAD = 0.06
@@ -169,8 +176,8 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         # so the policy cannot pre-widen its stance and must step reactively.
         self.posture_weight = float(posture_weight)
         self.capture_point_weight = float(capture_point_weight)
-        if posture_version not in (1, 2, 3):
-            raise ValueError("posture_version must be 1, 2 or 3")
+        if posture_version not in (1, 2, 3, 4):
+            raise ValueError("posture_version must be 1, 2, 3 or 4")
         self.posture_version = posture_version
         self.natural_stance = bool(natural_stance)
         if natural_stance and body not in BODY_SPECS:
@@ -271,6 +278,7 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         )
         self.sole_geom_ids = soles if len(soles) == 2 else []
         self._nominal_feet = np.zeros(2)
+        self._feet_reanchored = False
         self._foot_air_steps = [0, 0]
         self._rewarded_steps = 0
         self._previous_com = np.zeros(3)
@@ -437,6 +445,7 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         self.fallen = False
         if self.sole_geom_ids:
             self._nominal_feet = self._feet_vector()
+        self._feet_reanchored = False
         self._reference_com_height = float(self.data.subtree_com[1][2])
         self._foot_air_steps = [0, 0]
         self._rewarded_steps = 0
@@ -576,13 +585,20 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
             - 0.05 * float(np.mean(np.square(action - self.previous_action)))
         )
         posture_penalty = 0.0
+        sim_time = float(self.data.time)
+        settled = (self.posture_version == 4 and sim_time
+                   >= self.push_start + self.push_duration + NATURAL_SETTLE_S)
         if (self.posture_weight > 0.0 and not self.fallen and self.sole_geom_ids
-                and float(self.data.time) < self.push_start):
+                and (sim_time < self.push_start or settled)):
+            if settled and not self._feet_reanchored:
+                self._nominal_feet = self._feet_vector()
+                self._feet_reanchored = True
             drift = float(np.linalg.norm(self._feet_vector() - self._nominal_feet))
             if self.posture_version == 1:
                 posture_penalty = self.posture_weight * min(1.0, (drift / 0.10) ** 2)
-            elif self.posture_version == 3:
-                score = self.posture_weight * self._bracing_score(drift, upright, linear_drift=True)
+            elif self.posture_version in (3, 4):
+                score = self.posture_weight * self._bracing_score(
+                    drift, upright, linear_drift=True, feet_only=settled)
                 posture_penalty = max(0.0, reward) * score / (score + NATURAL_V3_HALF_SCORE)
             else:
                 posture_penalty = self.posture_weight * min(1.0, self._bracing_score(drift, upright))
@@ -604,13 +620,17 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         info["push_impulse"] = self.push_impulse
         return observation, reward, terminated, False, info
 
-    def _bracing_score(self, drift: float, upright: float, linear_drift: bool = False) -> float:
+    def _bracing_score(self, drift: float, upright: float, linear_drift: bool = False,
+                       feet_only: bool = False) -> float:
         """0 for relaxed standing; grows with wide stance, crouching and leaning."""
         crouch = self._reference_com_height - float(self.data.subtree_com[1][2])
         lean = float(np.arccos(np.clip(upright, -1.0, 1.0)))
         excess = max(0.0, drift - NATURAL_FEET_DEADZONE_M) / 0.10
+        feet = excess if linear_drift else excess ** 2
+        if feet_only:
+            return feet
         return (
-            (excess if linear_drift else excess ** 2)
+            feet
             + (max(0.0, crouch - NATURAL_CROUCH_LIMIT_M) / 0.05) ** 2
             + (max(0.0, lean - NATURAL_LEAN_LIMIT_RAD) / NATURAL_LEAN_LIMIT_RAD) ** 2
         )

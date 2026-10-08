@@ -46,3 +46,13 @@ Claude สั่งเทรนใน WSL แบบ background ได้ ทุ�
 - `auto-loop/tools/codex.sh`: เปลี่ยนเป็น `--sandbox danger-full-access -C <root>`, ย้าย log ไป `auto-loop/.loop/codex/` และแสดงเวลาที่ใช้
 - ทดสอบ: Codex รัน `git log --oneline -1` ได้ (exit 0, 18 วินาที) จากเดิมที่ถูกบล็อก
 - เอาบรรทัด `/.loop/` ที่เพิ่มใน `.gitignore` ของ root ออก เพราะไม่ต้องใช้แล้ว
+
+## Live output (8 ต.ค. ~02:20, ระหว่างลูปรอบแรกรอ job)
+- `run-loop.ps1`: เปลี่ยนเป็น `claude -p --output-format stream-json --verbose` และแปลง event เป็นข้อความอ่านง่าย
+  แสดงบนหน้าจอและเขียน `.loop/iter-NNN.log` สด ส่วน event ดิบเก็บใน `.loop/iter-NNN.jsonl`
+  ตาราง loop-report มีคอลัมน์ turns และค่าใช้จ่ายเพิ่ม และตั้ง UTF-8 แก้ภาษาไทยเพี้ยนใน log
+- `tools/codex.sh`: ทุกครั้งที่เรียกจะต่อท้าย `reports/codex.md` ด้วยคำสั่งที่ส่ง, คำสั่งที่ Codex รัน, คำตอบ และเวลา
+- ทดสอบ: ป้อน event ตัวอย่างให้ตัวแปลง ได้ผลถูก (ข้อความ, tool, ผล, Codex, error, บรรทัดที่ไม่ใช่ JSON, สรุปตอนจบ) parse ไม่มี error
+  สั่ง Codex จริงหนึ่งครั้ง codex.md บันทึกครบทุกส่วน (ลบ entry ทดสอบออกแล้ว)
+- ยังไม่ได้ทดสอบกับ `claude -p` จริง จะเห็นผลในการรันลูปครั้งถัดไป
+- แก้ระหว่างที่ลูปรันได้ เพราะรอบนั้นตั้ง `-MaxIterations 1` และผ่านจุดตรวจ hash ไปแล้ว
