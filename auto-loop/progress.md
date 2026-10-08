@@ -62,3 +62,26 @@
   ถ้า survival ที่ 0.10 ตกต่ำกว่า 60% แปลว่าต้นทุนหลังผลักไปกดการก้าวกู้หลายก้าว
 - **งานถัดไป:** พอ job จบ ให้อ่าน survival_curve.json ของ `natural4_r2` ทุก seed และ drift trace ท้าย log
   ถ้าผ่านเกณฑ์ทั้งหมดให้เขียน `auto-loop/milestones/m1_runs.json` (ใช้ run natural4_r2 ทั้ง 3 seeds) แล้วเริ่ม M2
+
+### รอบ 2026-10-08 13:27
+- **job ที่จบ:** `20261008-092513-m1v4` ใช้ 4:01 ชม. (exit 0) รัน 3 seeds ต่อกัน ~80 นาทีต่อ seed (R1 ~38 + R2 ~37 + eval ~6 นาที)
+  ผล v4 `natural4_r2` update 200: drift 4.8 / 7.3 / 4.8 ซม., รอดที่ 0.10 = 42 / 67 / 77% (เฉลี่ย 62%),
+  step 0.08→0.12 เพิ่มทุก seed, CoM ≤0.2 ซม., เอียง ≤5° → **M1 ผ่าน** (verify ยืนยัน)
+  - ข้อแลกเปลี่ยน: รอดลดจาก v3 (0.10: 72→62%, 0.12: 48→31%) 63001 ที่ 0.10 เหลือ 42% เฉลี่ยผ่านแบบเฉียดฉิว
+  - บันทึกตาราง v4 ลง `planning/Curriculum_Plan_TH.md` แล้ว และเขียน `auto-loop/milestones/m1_runs.json` (run natural4_r2 ทั้ง 3 seeds)
+- **ทำอะไร (M2 เตรียม, ทำเอง):** เขียน `scripts/diag_fall_damage.py` เพื่อดูว่าล้มแล้วเกิด damage จริงไหม
+  (ไม่จบ episode เมื่อล้ม รันต่อ 2.5 วิ วัด peak F/tolerance ต่อส่วน + damage + weighted 5/2/1)
+  smoke 2 episodes (seed 63001): **damage เล็กมาก** weighted ~0.0005–0.0014 ต่อการล้ม เกือบทั้งหมดมาจาก torso
+  (peak F/tol ~1.2–2.1 ที่ impact) ส่วน**ศีรษะไม่เคยถึง tolerance** (peak 0.4–0.76) แขนขวาของ policy บางทีเกิน (ยันพื้น)
+  passive ก็ล้มตั้งแต่ 0.08
+- **ผลต่อการออกแบบ M2:** ถ้าใช้ damage model เดิมเป็น reward ต้องคูณ scale ใหญ่ (~1e3) ไม่งั้นสัญญาณจมอยู่ใต้ survival bonus
+  และ head_damage_share น่าจะเป็น 0 เกือบตลอด (รายงานตามจริง) ทางเลือกที่ต้องตัดสินรอบหน้า:
+  (ก) ใช้ damage เดิม × scale เป็นบทลงโทษ ซึ่งตรงกับ eval แต่สัญญาณ sparse
+  (ข) เพิ่ม shaping จาก peak F/tol (เช่น Σ w·max(0, F/tol − 0.5)²) แต่ eval ยังใช้ weighted damage เดิม
+  เลือก (ก)+(ข) เล็กน้อยน่าจะดีที่สุด ส่วนเกณฑ์ M2 วัดด้วย damage เดิมเสมอ
+- **job ที่สั่ง:** `20261008-132923-falldmg2` = diag_fall_damage.py 12 episodes × 4 impulses × (passive + S1) × 3 seeds
+  คาดว่าใช้ ~15–30 นาที (`20261008-132911-falldmg` fail ทันทีเพราะเรียก `python` แทน `~/venvs/rl_fall/bin/python` ซึ่งไม่ใช่ปัญหาโค้ด)
+- **verify:** pytest ผ่าน, M1 PASS, M2–M4 FAIL (ยังไม่ได้ทำ)
+- **งานถัดไป:** อ่านผล falldmg2 แล้วบันทึกลง Curriculum_Plan (ส่วน S2) จากนั้นออกแบบ env S2 ใน `env3d.py`
+  (`fall_continue_s`, weighted damage reward, push แบบกู้ได้ ≤0.08 / กู้ไม่ได้ ≥0.15 อย่างละครึ่ง, fine-tune จาก natural4_r2)
+  และสคริปต์ `scripts/stage2_eval.py` ที่เขียน s2_eval.json ตามสัญญาใน GOAL.md (ส่วนนี้ส่งให้ Codex ได้)
