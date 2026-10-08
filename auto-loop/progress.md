@@ -132,3 +132,24 @@
   ถ้าผ่านเกณฑ์ (S2 รอดกลุ่มกู้ได้ ≥ S1−5pp, damage กลุ่มกู้ไม่ได้ < S1 และ < passive, false give-up ≤10%) ให้เขียน `auto-loop/milestones/m2_summary.json`
   (run_dir = run S2, eval_file = s2_eval.json ทั้ง 3 seeds ห้ามเลือก seed) ถ้าไม่ผ่าน: ลอง shaping F/tol เฉพาะ geom ที่ไม่ใช่เท้า หรือเพิ่ม DAMAGE_W
   ระหว่างรอ ทำ M3 ได้ (sbatch ใน `scripts/lanta/`, throughput จาก resources.jsonl)
+
+### รอบ 2026-10-08 15:40
+- **job ที่จบ:**
+  - `20261008-133651-s2pilot` ใช้ 1:53 ชม. (exit 0) ~38 นาทีต่อ seed
+  - `20261008-134435-s2eval` ใช้ 1:54 ชม. (exit 0) ส่วนใหญ่เป็นเวลารอ pilot ตัว eval จริงใช้ ~3 นาทีต่อ seed
+  - ผล S2 update 200: damage บนแรงผลักที่กู้ไม่ได้ต่ำกว่า S1 และปล่อยตัวทุก seed (ผ่าน)
+    แต่รอดบนแรงผลักที่กู้ได้ 83/69/69% เทียบกับ S1 88/96/96% และ false give-up 11.9/28.3/30.4% → **M2 ไม่ผ่าน**
+    head share 0/0/1.1% บันทึกตารางลง Curriculum_Plan ส่วน 5 แล้ว ยังไม่เขียน m2_summary.json
+- **ทำอะไร (ทำเอง):** วิเคราะห์ updates.csv (โทษ damage ลด ~−600→−250 ส่วนการล้มไม่มีแนวโน้มชัด)
+  เขียน `scripts/run_stage2_eval_trend.sh` เพื่อประเมิน checkpoint ก่อนหน้า และเขียนผลเป็น `s2_eval_update_<N>.json` (ไม่ทับ s2_eval.json)
+  (`worklog/s2_curves.sh` = สคริปต์ดู updates.csv ทุก 20 updates)
+- **job ที่สั่ง:** `20261008-154040-s2trend` = `bash scripts/run_stage2_eval_trend.sh 63001 63002 63003` (update 0/50/100/150)
+  คาดว่าใช้ ~35–40 นาที (12 evals × ~3 นาที)
+- **verify:** ไม่ได้แก้โค้ด src (เพิ่มแค่ shell script) ผลล่าสุดคือ pytest ผ่าน, M1 PASS, M2–M4 FAIL
+- **ปัญหา:** S2 แลกการรอดบนแรงผลักที่กู้ได้ไปกับ damage ที่ลดลง และ heredoc ใน Bash tool ถูก parser ปฏิเสธ ให้ใช้ Edit/Write แทน
+- **งานถัดไป:** อ่าน `s2_eval_update_*.json` ทั้งหมด แล้วบันทึกเป็นตารางแนวโน้มลง Curriculum_Plan ส่วน 5
+  - ถ้า update 0 (S1 weights ที่ยังไม่ได้เทรนด้วย reward ใหม่) false give-up ต่ำ แต่เพิ่มขึ้นตาม update แปลว่าเป็นผลจาก reward:
+    ลอง DAMAGE_W ต่ำลง (เช่น 3000) และ/หรือขยายช่วงกู้ได้เป็น U(0, 0.12) ให้ตรงกับ S1 (สมมติฐาน ค)
+  - ถ้าตกตั้งแต่ update 50 แล้วคงที่ แปลว่าเป็นช็อกจาก critic (สมมติฐาน ก): ลอง learning rate ต่ำลง หรือ warm-up critic ก่อน
+  - ถ้ามี checkpoint ที่ผ่าน gate ห้ามหยิบมาใช้เฉพาะตัวนั้น ต้องตั้งกฎล่วงหน้า (เช่น update คงที่ทุก seed) แล้วเทรนใหม่
+  - ระหว่างรอ ทำ M3 ได้ (sbatch + compute estimate)
