@@ -160,6 +160,18 @@ def synchronize(device: str) -> None:
         torch.cuda.synchronize()
 
 
+def set_actor_trainable(model: PPO, trainable: bool) -> None:
+    """Freeze or unfreeze the actor; the value net always trains.
+
+    Frozen parameters get no gradient, so Adam leaves them (and their moments) alone.
+    Used to let the critic catch up with a new reward before the policy moves.
+    """
+    policy = model.policy
+    for parameter in (*policy.mlp_extractor.policy_net.parameters(),
+                      *policy.action_net.parameters(), policy.log_std):
+        parameter.requires_grad_(trainable)
+
+
 def create_model(
     env: VecEnv, device: str, seed: int, n_steps: int, network_width: int = 128,
     log_std_init: float = 0.0, gamma: float = 0.999,
@@ -299,6 +311,7 @@ def run_training(
     posture_version: int = 1, natural_stance: bool = False,
     hard_push_range: tuple[float, float] | None = None,
     fall_continue_s: float = 0.0, damage_weight: float = 0.0,
+    critic_warmup_updates: int = 0,
 ) -> dict[str, object]:
     if environment not in ("planar", "3d"):
         raise ValueError("environment must be planar or 3d")
@@ -441,6 +454,7 @@ def run_training(
                     continue  # finished before the interruption
                 synchronize(device)
                 begin = time.perf_counter()
+                set_actor_trainable(model, len(update_rows) >= critic_warmup_updates)
                 callback = UpdateMetricsCallback()
                 model.learn(total_timesteps=rollout,
                             reset_num_timesteps=False, progress_bar=False,
@@ -529,6 +543,7 @@ def run_training(
             "posture_version": posture_version, "natural_stance": natural_stance,
             "hard_push_range": list(hard_push_range) if hard_push_range else None,
             "fall_continue_s": fall_continue_s, "damage_weight": damage_weight,
+            "critic_warmup_updates": critic_warmup_updates,
             "gamma": gamma, "norm_reward": norm_reward,
             "init_checkpoint": str(init_checkpoint) if init_checkpoint else None,
             "resumed_from_update": resumed_from, "log_std_override": log_std,
@@ -611,6 +626,9 @@ def main() -> None:
                         help="S2: keep running this long after a fall instead of ending the episode")
     parser.add_argument("--damage-weight", type=float, default=0.0,
                         help="S2: reward cost per unit of weighted damage (head 5, torso 2, limbs 1)")
+    parser.add_argument("--critic-warmup-updates", type=int, default=0,
+                        help="freeze the actor (policy net, action net, log-std) for the first N "
+                             "updates so only the value net adapts to a new reward")
     args = parser.parse_args()
     wrapper = args.wrapper or ("dummy" if args.n_envs == 1 else "subproc")
     result = run_training(args.output, args.device, args.condition, args.seed,
@@ -623,7 +641,8 @@ def main() -> None:
                           args.log_std, args.capture_point_weight, args.posture_version,
                           args.natural_stance,
                           tuple(args.hard_push_range) if args.hard_push_range else None,
-                          args.fall_continue_s, args.damage_weight)
+                          args.fall_continue_s, args.damage_weight,
+                          args.critic_warmup_updates)
     print(json.dumps(result, indent=2, sort_keys=True))
 
 

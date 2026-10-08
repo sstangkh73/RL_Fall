@@ -153,3 +153,28 @@
   - ถ้าตกตั้งแต่ update 50 แล้วคงที่ แปลว่าเป็นช็อกจาก critic (สมมติฐาน ก): ลอง learning rate ต่ำลง หรือ warm-up critic ก่อน
   - ถ้ามี checkpoint ที่ผ่าน gate ห้ามหยิบมาใช้เฉพาะตัวนั้น ต้องตั้งกฎล่วงหน้า (เช่น update คงที่ทุก seed) แล้วเทรนใหม่
   - ระหว่างรอ ทำ M3 ได้ (sbatch + compute estimate)
+
+### รอบ 2026-10-08 16:18
+- **job ที่จบ:** `20261008-154040-s2trend` ใช้ 35:24 นาที (exit 0) ประเมิน checkpoint S2 update 0/50/100/150 ทั้ง 3 seeds
+  - update 0 = S1 ตรงกันทุกค่า (FGU 0%) false give-up โผล่ตั้งแต่ update 50 (6.5–14.3%) แล้วแกว่งไม่เป็นทิศทาง (2.2–30.4%)
+    damage กลุ่มกู้ไม่ได้ลดตั้งแต่ update 50 ไม่มี checkpoint ไหนผ่าน gate ครบ 3 seeds บันทึกตารางลง Curriculum_Plan ส่วน 5 แล้ว
+- **วิเคราะห์ (ทำเอง):** `scripts/diag_s2_obsnorm.py` + `scripts/run_diag_s2_obsnorm.sh` สลับ weights กับ VecNormalize ของ S1/S2 (63003, 63001)
+  S1 weights + S2 norm ยังรอด 92% แต่ S2 weights + S1 norm ตก (65/54%) → **ต้นเหตุคือ weights ไม่ใช่สถิติ obs** (return std ก็ไม่เปลี่ยน 42.4→42.2)
+  reward (gamma 0.99, ยืน ~1.5/step ≈ 150 เทียบ damage ~15 ต่อการล้ม) ไม่ได้จูงใจให้ยอมล้ม จึงสรุปว่าน่าจะเป็นความไม่เสถียรของ fine-tune
+  จาก critic ของ S1 ที่ไม่เคยเห็นสถานะหลังล้ม (สมมติฐาน ก) ข้อสังเกต: obs มี `remaining` (เวลาที่เหลือ) อยู่แล้ว policy จึงรู้เวลา
+- **แก้ (ทำเอง):** `train.py` เพิ่ม `--critic-warmup-updates N` (+ `set_actor_trainable`) แช่แข็ง policy_net/action_net/log_std ใน N updates แรก
+  (requires_grad=False ทำให้ Adam ข้ามพารามิเตอร์เหล่านั้น) บันทึก `critic_warmup_updates` ลง manifest
+  `run_stage1.sh` เพิ่ม env `CRITIC_WARMUP`, `run_stage2_pilot.sh` เพิ่ม `CRITIC_WARMUP` (tag `_cw<N>`; ถ้าเป็น 0 tag เดิมไม่เปลี่ยน)
+  เพิ่ม `scripts/run_stage2_critic_warmup.sh` (เทรน + eval update 200 + trend 50/100/150) และ test `tests/test_critic_warmup.py`
+  (actor ไม่เปลี่ยนใน update ที่ warm-up แต่ critic เปลี่ยน แล้ว actor กลับมาเทรนต่อ)
+- **verify:** pytest ผ่าน 52 tests, M1 PASS, M2–M4 FAIL (ยังไม่มีผล)
+- **job ที่สั่ง:** `20261008-162754-s2cw25` = `bash scripts/run_stage2_critic_warmup.sh 63001 63002 63003`
+  (CRITIC_WARMUP=25, DAMAGE_W=10000 ผลออกที่ `results/stage2/seed_*/push_0.08_hard0.5_posture1.0_s2_dmg10000_cw25/`)
+  คาดว่าใช้ ~2.5 ชม. (3 × ~38 นาที + eval 3 × 3 นาที + trend 9 × 3 นาที)
+- **ปัญหา:** `wsl.exe -- bash -lc '...'` จาก Bash tool ก็ยังแทนค่า `$S` เป็นค่าว่าง ต้องใช้สคริปต์ .sh เสมอ
+  ถ้าจะรันสคริปต์ใหม่ที่ยังไม่ได้ sync ไป `~/RL_Fall` ให้ cp จาก /mnt/c ก่อน (ผลอยู่ใน ~/RL_Fall/results)
+- **งานถัดไป:** อ่าน `s2_eval.json` และ `s2_eval_update_*.json` ของ `s2_dmg10000_cw25` แล้วเทียบกับ `s2_dmg10000` ใน Curriculum_Plan ส่วน 5
+  - ถ้าผ่าน gate ทั้ง 3 seeds ที่ update 200 → เขียน `auto-loop/milestones/m2_summary.json` (run cw25 ทั้ง 3 seeds)
+  - ถ้า false give-up ยังแกว่ง: ลอง learning rate fine-tune ต่ำลง (เช่น 3e-5 ตอนนี้ CURRICULUM_PPO ใช้ 1e-4)
+    และ/หรือขยายช่วงกู้ได้เป็น U(0, 0.10) (สมมติฐาน ค) ทีละอย่าง
+  - ระหว่างรอ job ทำ M3 ได้ (sbatch ใน `scripts/lanta/` + throughput จาก resources.jsonl / manifest steady_transitions_per_second)
