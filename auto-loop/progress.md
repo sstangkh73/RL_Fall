@@ -285,3 +285,24 @@
   - ถ้าผ่าน gate ครบ 3 seeds ที่ update 200 → เขียน `auto-loop/milestones/m2_summary.json` แล้วแก้ตัวเลข S2 ใน M3 และเขียน m3_compute.json
   - ถ้าไม่ผ่าน → ทำ BC/KL anchor ไปที่ S1 (ส่งให้ Codex เขียนได้: เพิ่ม auxiliary loss ใน `train.py` ที่ใช้ S1 ตัวที่แช่แข็งไว้
     บน state ที่ยังไม่ล้มและเป็นแรงผลักที่กู้ได้ พร้อม test) ห้ามเลือก checkpoint ที่ผลดีเอง ต้องใช้ update 200 ทุก seed
+
+### รอบ 2026-10-09 05:17
+- **job ที่จบ:** `20261009-024529-s2wide` ใช้ 2:21 ชม. (exit 0) push กู้ได้ U(0, 0.12) (สมมติฐาน ค)
+  update 200: รอดกลุ่มกู้ได้ 83.3 / 83.3 / 79.2% (S1 87.5 / 95.8 / 95.8%), FGU 16.7 / 15.2 / 19.6%,
+  damage กลุ่มกู้ไม่ได้ 0.00086 / 0.00116 / 0.00042 (< S1 และ < ปล่อยตัว ทุก seed) → **M2 ไม่ผ่าน (ครั้งที่ 4)**
+  trend FGU 0–56.5% ยังแกว่งอยู่ ทักษะยังหายที่ 0.08 บันทึกตาราง + ผลแยกตามแรงผลักลง Curriculum_Plan ส่วน 5 แล้ว
+- **ทำอะไร:** ทางแก้ข้อ (2) ของ Codex คือ KL anchor ไปที่ S1 ตัวที่แช่แข็งไว้ **Codex เป็นคนเขียน** (prompt อยู่ที่ `worklog/codex_task_s2_anchor.md`)
+  - `train.py`: `--anchor-coef/--anchor-checkpoint/--anchor-max-impulse`, `AnchorSamplesCallback` (เก็บ obs ที่แรงผลัก ≤ max และยังไม่ล้ม
+    โดยดูจาก fallen ของ step ก่อน), แปลง obs กลับเป็นค่าดิบแล้ว normalize ด้วย obs_rms ของ S1, `anchor_step` (KL(S1‖θ) หลัง PPO update ทุกครั้ง
+    5 epochs, batch 2048, ใช้ optimizer เดิม) และเพิ่มคอลัมน์ anchor_* ใน updates.csv เฉพาะตอนเปิด anchor
+  - `run_stage1.sh`/`run_stage2_pilot.sh` รับ env ANCHOR (tag `_anc<ANCHOR>`) และสคริปต์ใหม่ `scripts/run_stage2_anchor.sh` (base recipe 0.08, dmg10000, ANCHOR=1.0)
+  - `tests/test_anchor.py` (7 tests)
+  - **ตรวจเอง:** อ่าน git diff แล้ว (ถ้า coef=0 พฤติกรรมเดิมไม่เปลี่ยน), smoke test 2 updates บน checkpoint S1 จริง (`worklog/smoke_anchor.sh`)
+    ได้ ~9–11k samples ต่อ update และ KL ลดจาก 0.021 เหลือ 0.001–0.0016 ต่อ update
+- **verify:** pytest ผ่าน (60 tests), M1 PASS, M2–M4 FAIL (ยังไม่มีผล)
+- **job ที่สั่ง:** `20261009-051654-s2anchor` = `bash scripts/run_stage2_anchor.sh 63001 63002 63003`
+  ผลออกที่ `results/stage2/seed_*/push_0.08_hard0.5_posture1.0_s2_dmg10000_anc1.0/` คาดว่าใช้ ~2.5–3 ชม. (anchor phase เพิ่มเวลาต่อ update เล็กน้อย)
+- **งานถัดไป:** อ่าน s2_eval*.json ของ `s2_dmg10000_anc1.0` (+ `worklog/s2_per_impulse.py` และดู anchor_kl ใน updates.csv) แล้วบันทึกลง Curriculum_Plan ส่วน 5
+  - ผ่านครบ 3 seeds ที่ update 200 → เขียน `auto-loop/milestones/m2_summary.json` แล้วแก้ตัวเลข S2 ในเอกสาร M3 และเขียน m3_compute.json
+  - FGU ลดลงแต่ยังไม่ผ่าน → ลองเพิ่ม ANCHOR (เช่น 3.0) หรือ anchor + RECOVERABLE_MAX 0.12
+  - ไม่ช่วยเลย → ถือว่าติดมาหลายรอบแล้ว ให้บันทึกหลักฐานและพิจารณาว่าเกณฑ์ FGU ≤10% เป็นไปได้หรือไม่ (noise floor ~4.8%, สูงสุด 11.9%)

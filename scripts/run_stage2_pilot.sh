@@ -24,11 +24,15 @@ if [ "$CRITIC_WARMUP" != "0" ]; then TAG="${TAG}_cw${CRITIC_WARMUP}"; fi
 # LR overrides the fine-tune learning rate (M1 policy trained at 1e-4; tag gets _lr<LR>).
 LR="${LR:-}"
 if [ -n "$LR" ]; then TAG="${TAG}_lr${LR}"; fi
+# ANCHOR keeps the recoverable, pre-fall policy close to the frozen S1 policy.
+ANCHOR="${ANCHOR:-}"
+if [ -n "$ANCHOR" ]; then TAG="${TAG}_anc${ANCHOR}"; fi
 for SEED in "${SEEDS[@]}"; do
   S1=$(ls -td results/stage1_v1_0/seed_$SEED/push_0.12_hard0.5_posture1.0_natural4_r2/3d_* | head -1)
   env BODY=v1_0 POSTURE=1.0 POSTURE_VERSION=4 NATURAL=1 CP=10 HARD=0.5 HARD_RANGE="0.15 0.25" \
       FALL_CONTINUE=2.5 DAMAGE_W="$DAMAGE_W" OUT_ROOT=results/stage2 STAGE=S2_recover_or_fall \
       INIT_CHECKPOINT="$S1/checkpoint.zip" TAG="$TAG" CRITIC_WARMUP="$CRITIC_WARMUP" LR="$LR" \
+      ANCHOR="$ANCHOR" ANCHOR_CHECKPOINT="$S1/checkpoint.zip" \
       scripts/run_stage1.sh "$SEED" "$UPDATES" "$RECOVERABLE_MAX"
   echo "=== S2 seed $SEED done $(date '+%F %T')"
 done

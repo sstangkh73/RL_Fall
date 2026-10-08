@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import hashlib
 import json
 import os
 import platform
+import pickle
 import shutil
 import subprocess
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, TextIO
 
@@ -20,7 +22,9 @@ import numpy as np
 import psutil
 import torch
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.callbacks import BaseCallback, CallbackList
+from stable_baselines3.common.policies import ActorCriticPolicy
+from stable_baselines3.common.running_mean_std import RunningMeanStd
 from stable_baselines3.common.vec_env import (
     DummyVecEnv,
     SubprocVecEnv,
@@ -153,6 +157,113 @@ class UpdateMetricsCallback(BaseCallback):
             self.falls += int(bool(info.get("fallen", False)))
             self.balance_reward += float(info.get("reward_balance", 0.0))
         return True
+
+
+@dataclass(frozen=True)
+class AnchorNormalizer:
+    """Observation statistics copied from S1, never updated by S2 rollouts."""
+
+    obs_rms: RunningMeanStd
+    clip_obs: float
+    epsilon: float
+
+    @classmethod
+    def load(cls, checkpoint: Path) -> AnchorNormalizer:
+        path = checkpoint.with_name(
+            checkpoint.stem.replace("checkpoint", "vecnormalize") + ".pkl"
+        )
+        with path.open("rb") as stream:
+            saved = pickle.load(stream)
+        return cls(copy.deepcopy(saved.obs_rms), saved.clip_obs, saved.epsilon)
+
+
+class AnchorSamplesCallback(BaseCallback):
+    def __init__(
+        self, training_env: VecNormalize, normalizer: AnchorNormalizer,
+        max_impulse: float,
+    ) -> None:
+        super().__init__(verbose=0)
+        self.normalizer = normalizer
+        self.normalizing_env = training_env
+        self.max_impulse = max_impulse
+        self.previous_fallen = np.zeros(training_env.num_envs, dtype=bool)
+        self.obs_s2: list[np.ndarray] = []
+        self.obs_anchor: list[np.ndarray] = []
+
+    def _on_rollout_start(self) -> None:
+        # Episodes can span learn() calls: clear samples, retain previous-step flags.
+        self.obs_s2.clear()
+        self.obs_anchor.clear()
+
+    def _on_step(self) -> bool:
+        infos, dones = self.locals["infos"], self.locals["dones"]
+        eligible = np.array([
+            info.get("push_impulse", float("inf")) <= self.max_impulse + 1e-9
+            for info in infos
+        ]) & ~self.previous_fallen
+        if eligible.any():
+            obs = self.locals["obs_tensor"].detach().cpu().numpy()[eligible].copy()
+            env = self.normalizing_env
+            raw = obs * np.sqrt(env.obs_rms.var + env.epsilon) + env.obs_rms.mean
+            frozen = self.normalizer
+            normalized = (raw - frozen.obs_rms.mean) / np.sqrt(
+                frozen.obs_rms.var + frozen.epsilon
+            )
+            self.obs_s2.append(obs)
+            self.obs_anchor.append(np.clip(
+                normalized, -frozen.clip_obs, frozen.clip_obs
+            ).astype(np.float32))
+        self.previous_fallen[:] = [
+            bool(info.get("fallen", False)) and not bool(done)
+            for info, done in zip(infos, dones)
+        ]
+        return True
+
+    def samples(self) -> tuple[np.ndarray, np.ndarray]:
+        if not self.obs_s2:
+            shape = (0, *self.normalizing_env.observation_space.shape)
+            return np.empty(shape, dtype=np.float32), np.empty(shape, dtype=np.float32)
+        return np.concatenate(self.obs_s2), np.concatenate(self.obs_anchor)
+
+
+def anchor_step(
+    model: PPO, anchor_policy: ActorCriticPolicy,
+    obs_s2: np.ndarray | torch.Tensor, obs_anchor: np.ndarray | torch.Tensor,
+    coef: float, epochs: int, batch_size: int,
+) -> tuple[float, float]:
+    """Minimize KL(S1 || S2) with the PPO optimizer, leaving the critic untouched."""
+    if coef <= 0 or len(obs_s2) == 0:
+        return 0.0, 0.0
+    obs_s2 = torch.as_tensor(obs_s2, dtype=torch.float32, device=model.device)
+    obs_anchor = torch.as_tensor(obs_anchor, dtype=torch.float32, device=model.device)
+    policy = model.policy
+    policy.set_training_mode(True)
+
+    def kl(indices: torch.Tensor | slice) -> torch.Tensor:
+        with torch.no_grad():
+            frozen = anchor_policy.get_distribution(obs_anchor[indices]).distribution
+        current = policy.get_distribution(obs_s2[indices]).distribution
+        return torch.distributions.kl_divergence(frozen, current).sum(dim=-1)
+
+    def mean_kl() -> float:
+        with torch.no_grad():
+            total = sum(
+                kl(slice(start, start + batch_size)).sum().item()
+                for start in range(0, len(obs_s2), batch_size)
+            )
+        return total / len(obs_s2)
+
+    before = mean_kl()
+    for _ in range(epochs):
+        indices = torch.randperm(len(obs_s2), device=model.device)
+        for batch in indices.split(batch_size):
+            loss = coef * kl(batch).mean()
+            # Clear PPO's last gradients, including the critic's Adam momentum path.
+            policy.optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(policy.parameters(), model.max_grad_norm)
+            policy.optimizer.step()
+    return before, mean_kl()
 
 
 def synchronize(device: str) -> None:
@@ -318,7 +429,11 @@ def run_training(
     hard_push_range: tuple[float, float] | None = None,
     fall_continue_s: float = 0.0, damage_weight: float = 0.0,
     critic_warmup_updates: int = 0, learning_rate: float | None = None,
+    anchor_coef: float = 0.0, anchor_checkpoint: Path | None = None,
+    anchor_max_impulse: float | None = None,
 ) -> dict[str, object]:
+    if anchor_coef > 0 and anchor_checkpoint is None:
+        raise ValueError("anchor_checkpoint is required when anchor_coef > 0")
     if environment not in ("planar", "3d"):
         raise ValueError("environment must be planar or 3d")
     if environment == "planar" and (body, mode) != ("v0_1", "task"):
@@ -418,6 +533,17 @@ def run_training(
                 )
             )
 
+        anchor_callback = None
+        if anchor_coef > 0:
+            anchor_model = PPO.load(anchor_checkpoint, device=device)
+            anchor_model.policy.set_training_mode(False)
+            for parameter in anchor_model.policy.parameters():
+                parameter.requires_grad_(False)
+            anchor_callback = AnchorSamplesCallback(
+                env, AnchorNormalizer.load(anchor_checkpoint),
+                max_push_impulse if anchor_max_impulse is None else anchor_max_impulse,
+            )
+
         def run_evaluation() -> dict[str, object]:
             return evaluate(
                 model, env, seed + 1_000_000, evaluation_scenarios, environment,
@@ -467,7 +593,16 @@ def run_training(
                 callback = UpdateMetricsCallback()
                 model.learn(total_timesteps=rollout,
                             reset_num_timesteps=False, progress_bar=False,
-                            callback=callback)
+                            callback=(callback if anchor_callback is None else
+                                      CallbackList([callback, anchor_callback])))
+                if anchor_callback is not None:
+                    obs_s2, obs_anchor = anchor_callback.samples()
+                    anchor_kl_before, anchor_kl_after = 0.0, 0.0
+                    if len(update_rows) >= critic_warmup_updates:
+                        anchor_kl_before, anchor_kl_after = anchor_step(
+                            model, anchor_model.policy, obs_s2, obs_anchor, anchor_coef,
+                            CURRICULUM_PPO["n_epochs"], CURRICULUM_PPO["batch_size"],
+                        )
                 synchronize(device)
                 elapsed = time.perf_counter() - begin
                 update_rows.append({
@@ -487,6 +622,12 @@ def run_training(
                     "falls": callback.falls,
                     "reward_balance_sum": callback.balance_reward,
                 })
+                if anchor_callback is not None:
+                    update_rows[-1].update({
+                        "anchor_samples": len(obs_s2),
+                        "anchor_kl_before": anchor_kl_before,
+                        "anchor_kl_after": anchor_kl_after,
+                    })
                 if updates_writer is None:
                     updates_writer = csv.DictWriter(
                         updates_stream, fieldnames=list(update_rows[0])
@@ -554,6 +695,10 @@ def run_training(
             "fall_continue_s": fall_continue_s, "damage_weight": damage_weight,
             "critic_warmup_updates": critic_warmup_updates,
             "learning_rate_override": learning_rate,
+            "anchor_coef": anchor_coef,
+            "anchor_checkpoint": str(anchor_checkpoint) if anchor_checkpoint else None,
+            "anchor_max_impulse": (max_push_impulse if anchor_max_impulse is None
+                                   else anchor_max_impulse),
             "gamma": gamma, "norm_reward": norm_reward,
             "init_checkpoint": str(init_checkpoint) if init_checkpoint else None,
             "resumed_from_update": resumed_from, "log_std_override": log_std,
@@ -641,6 +786,12 @@ def main() -> None:
                              "updates so only the value net adapts to a new reward")
     parser.add_argument("--learning-rate", type=float, default=None,
                         help="override the learning rate of --init-checkpoint / --resume")
+    parser.add_argument("--anchor-coef", type=float, default=0.0,
+                        help="KL loss weight toward a frozen S1 policy on recoverable pushes")
+    parser.add_argument("--anchor-checkpoint", type=Path, default=None,
+                        help="explicit S1 checkpoint, required when --anchor-coef > 0")
+    parser.add_argument("--anchor-max-impulse", type=float, default=None,
+                        help="largest impulse eligible for anchoring (default max-push-impulse)")
     args = parser.parse_args()
     wrapper = args.wrapper or ("dummy" if args.n_envs == 1 else "subproc")
     result = run_training(args.output, args.device, args.condition, args.seed,
@@ -654,7 +805,8 @@ def main() -> None:
                           args.natural_stance,
                           tuple(args.hard_push_range) if args.hard_push_range else None,
                           args.fall_continue_s, args.damage_weight,
-                          args.critic_warmup_updates, args.learning_rate)
+                          args.critic_warmup_updates, args.learning_rate,
+                          args.anchor_coef, args.anchor_checkpoint, args.anchor_max_impulse)
     print(json.dumps(result, indent=2, sort_keys=True))
 
 

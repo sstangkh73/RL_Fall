@@ -142,3 +142,49 @@ I would prioritize neither lower DAMAGE_W nor more updates: the zero-damage cont
 **No confirmed gate-causing implementation bug emerged from this review.**
 
 log เต็ม: `auto-loop/.loop/codex/20261009-024544.log`
+
+## 2026-10-09 05:15:27  (exit 0, 340s)
+
+**Claude สั่ง:**
+
+````text
+Read the file worklog/codex_task_s2_anchor.md in this repo and carry out the task described there exactly. Follow its Rules section (never modify files under auto-loop/, do not touch results/, do not commit). Finish by reporting the files changed and the test results.
+````
+
+**Codex รัน:**
+
+````text
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command 'Get-Content worklog/codex_task_s2_anchor.md; Get-ChildItem -Path . -Filter AGENTS.md -Force; git status --short' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "rg -n \"RL_Fall|s2_anchor\" C:\\Users\\sstan\\.codex\\memories\\MEMORY.md" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "Get-Content C:\\Users\\sstan\\.codex\\skills\\verification-before-completion\\SKILL.md; rg --files -g AGENTS.md -g '"'!auto-loop/**'"' -g '"'!results/**'"'; Get-Content src/rl_fall/train.py" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "Get-Content scripts/run_stage1.sh; Get-Content scripts/run_stage2_pilot.sh; Get-Content scripts/run_stage2_wide.sh; Get-Content scripts/run_stage2_eval.sh; Get-Content scripts/run_stage2_eval_trend.sh; Get-Content tests/test_critic_warmup.py; Get-Content pyproject.toml; rg -n 'fallen|push_impulse' src/rl_fall/env3d.py" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "Get-Content src/rl_fall/train.py | Select-Object -Skip 375 -First 245; Get-Content src/rl_fall/env3d.py | Select-Object -Skip 575 -First 90; rg --files tests; wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/c/RL_Fall && ~/venvs/rl_fall/bin/python -c \"import stable_baselines3; print(stable_baselines3.__version__)\"'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "Get-Content src/rl_fall/train.py | Select-Object -Skip 350 -First 35; Get-Content tests/test_resume.py; Get-Content tests/test_model.py; wsl.exe -d Ubuntu -- bash -lc 'sed -n \"150,235p\" ~/venvs/rl_fall/lib/python3.12/site-packages/stable_baselines3/common/on_policy_algorithm.py'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/c/RL_Fall && ~/venvs/rl_fall/bin/python -m pytest -q tests/test_anchor.py'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/c/RL_Fall && bash -n scripts/run_stage2_anchor.sh scripts/run_stage2_pilot.sh scripts/run_stage1.sh'; git diff --check; git diff --stat; git diff -- src/rl_fall/train.py scripts/run_stage1.sh scripts/run_stage2_pilot.sh" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "Get-Content C:\\Users\\sstan\\.codex\\skills\\systematic-debugging\\SKILL.md; wsl.exe -d Ubuntu -- bash -lc 'cat /tmp/pytest-of-sstangkh73/pytest-0/test_training_logs_anchor_skip0/run/*/updates.csv'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/c/RL_Fall && ~/venvs/rl_fall/bin/python -m pytest -q tests/test_anchor.py::test_training_logs_anchor_skips_critic_warmup_and_keeps_s1_on_resume'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "wsl.exe -d Ubuntu -- bash -lc 'cat /tmp/pytest-of-sstangkh73/pytest-1/test_training_logs_anchor_skip0/run/*/updates.csv'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/c/RL_Fall && ~/venvs/rl_fall/bin/python -m pytest -q tests/test_anchor.py'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "rg -n 'results/|results\\\\|auto-loop|run_training\\(' tests; wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/c/RL_Fall && ~/venvs/rl_fall/bin/python -m pytest -q'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "git ls-files -s scripts/run_stage2_wide.sh scripts/run_stage2_pilot.sh scripts/run_stage1.sh; git status --short; wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/c/RL_Fall && bash -n scripts/run_stage2_anchor.sh scripts/run_stage2_pilot.sh scripts/run_stage1.sh'; git diff --check -- src/rl_fall/train.py scripts/run_stage1.sh scripts/run_stage2_pilot.sh; Get-Content scripts/run_stage2_anchor.sh" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/c/RL_Fall && ~/venvs/rl_fall/bin/python -m pytest --collect-only -q -o addopts='; "'$taskFiles = @('"'scripts/run_stage2_anchor.sh', 'scripts/run_stage2_pilot.sh', 'scripts/run_stage1.sh'); foreach ("'$taskFile in $taskFiles) { $taskText = [System.IO.File]::ReadAllText((Join-Path (Get-Location) $taskFile)); Write-Output "$taskFile CRLF=$($taskText.Contains("`r`n"))" }' in C:\RL_Fall
+````
+
+**Codex ตอบ:**
+
+Implemented the optional frozen S1 KL anchor, rollout filtering and normalization, logging, CLI flags, and S2 launcher.
+
+Files changed:
+
+- [src/rl_fall/train.py](/C:/RL_Fall/src/rl_fall/train.py)
+- [scripts/run_stage1.sh](/C:/RL_Fall/scripts/run_stage1.sh)
+- [scripts/run_stage2_pilot.sh](/C:/RL_Fall/scripts/run_stage2_pilot.sh)
+- [scripts/run_stage2_anchor.sh](/C:/RL_Fall/scripts/run_stage2_anchor.sh) — new
+- [tests/test_anchor.py](/C:/RL_Fall/tests/test_anchor.py) — new
+
+Verification: **all 60 tests passed** using the requested WSL command, including seven anchor tests. Bash syntax checks and `git diff --check` passed.
+
+No changes to `auto-loop/` or `results/`, no long training, and no commits.
+
+log เต็ม: `auto-loop/.loop/codex/20261009-050946.log`
