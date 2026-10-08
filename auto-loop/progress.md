@@ -234,3 +234,18 @@
 - **งานถัดไป:** อ่าน s2_eval*.json ของ `s2_dmg0` แล้วบันทึกลง Curriculum_Plan ส่วน 5 (เทียบ FGU กับ 3 run ก่อนหน้า)
   ถ้าเวลาเลย 02:32 แล้ว ให้รัน Codex ใหม่ด้วย `bash auto-loop/tools/codex.sh "Read the file worklog/codex_task_s2_fgu_analysis.md ..."`
   (เพิ่มผล control ลงในไฟล์ prompt ก่อน) แล้วเลือกทางแก้ตามผล control ข้างบน
+
+### รอบ 2026-10-08 23:55
+- **job ที่ตาย:** `20261008-220533-s2ctrl` (jobs.ps1 ขึ้น stale) เพราะ WSL VM รีสตาร์ต (uptime 2 นาทีตอน 23:53)
+  heartbeat สุดท้ายตอน 23:39 และ updates.csv ของ 63002 หยุดที่ update 74 ตอน 23:40 ไม่เหลือ process ใน WSL แล้ว
+  seed 63001 เทรนครบ 200 updates แล้ว (22:05–23:09 ใช้ ~64 นาที) แต่ยังไม่ได้ eval ไม่รู้ว่าทำไม VM รีสตาร์ต
+  (job ก่อนหน้ารันได้นานหลายชั่วโมงโดยไม่มีปัญหา) ถ้าเกิดซ้ำต้องดูว่า Windows sleep/update หรือ verify ทำให้ WSL shutdown หรือไม่
+- **ทำอะไร (ทำเอง):** สั่งคำสั่งเดิมใหม่ (สคริปต์รันซ้ำได้: ข้าม 63001 ที่เสร็จแล้ว และ 63002 resume จาก checkpoint_update_75) ตรวจใน log แล้วว่า `--resume` ถูก run
+  สคริปต์ตรวจสถานะ: `worklog/check_s2ctrl.sh`
+- **job ที่สั่ง:** `20261008-235337-s2ctrl2` = `bash scripts/run_stage2_control.sh 63001 63002 63003`
+  คาดว่าใช้ ~2.3 ชม. (63002 อีก 125 updates ~40 นาที + 63003 ~60 นาที + eval 3×3 นาที + trend 9×3 นาที)
+- **job ที่จบ:** ไม่มี (s2ctrl ตายกลางทาง ไม่มีผล)
+- **verify:** ไม่ได้แก้ src/tests ผลล่าสุด (23:52) คือ pytest ผ่าน, M1 PASS, M2–M4 FAIL
+- **งานถัดไป:** เหมือนรอบ 22:05 คืออ่าน s2_eval*.json ของ `s2_dmg0` แล้วบันทึกลง Curriculum_Plan ส่วน 5 (ใส่เวลา job s2ctrl + s2ctrl2)
+  จากนั้นรัน Codex วิเคราะห์ (หลัง 02:32) ด้วย `worklog/codex_task_s2_fgu_analysis.md` + ผล control แล้วเลือกทางแก้
+  (control FGU สูง → anchor ไปที่ S1 / ขยายช่วงกู้ได้; control FGU ต่ำ → DAMAGE_W 3000)
