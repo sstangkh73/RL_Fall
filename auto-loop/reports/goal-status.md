@@ -1,4 +1,4 @@
-# Goal status (2026-10-08 16:27:45)
+# Goal status (2026-10-08 19:01:34)
 
 ## PASS — M1 — S1 gate (natural stance + reactive survival, 3 seeds)
 - mean survival at 0.10 = 62%

@@ -19,6 +19,7 @@
 #   FALL_CONTINUE  S2: seconds to keep running after a fall (default: a fall ends the episode)
 #   DAMAGE_W  S2: reward cost per unit of weighted damage (default 0)
 #   CRITIC_WARMUP  freeze the actor for the first N updates of each level (default 0)
+#   LR  override the learning rate of INIT_CHECKPOINT / resumed runs (default: keep it)
 #   OUT_ROOT  results root (default results/stage1 or results/stage1_<body>)
 #   STAGE  manifest stage label (default S1_balance)
 set -euo pipefail
@@ -40,6 +41,7 @@ if [ -n "${HARD_RANGE:-}" ]; then read -r -a RANGE <<< "$HARD_RANGE"; EXTRA+=(--
 if [ -n "${FALL_CONTINUE:-}" ]; then EXTRA+=(--fall-continue-s "$FALL_CONTINUE"); fi
 if [ -n "${DAMAGE_W:-}" ]; then EXTRA+=(--damage-weight "$DAMAGE_W"); fi
 if [ -n "${CRITIC_WARMUP:-}" ]; then EXTRA+=(--critic-warmup-updates "$CRITIC_WARMUP"); fi
+if [ -n "${LR:-}" ]; then EXTRA+=(--learning-rate "$LR"); fi
 STAGE="${STAGE:-S1_balance}"
 TAG="${TAG:-}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -178,3 +178,22 @@
   - ถ้า false give-up ยังแกว่ง: ลอง learning rate fine-tune ต่ำลง (เช่น 3e-5 ตอนนี้ CURRICULUM_PPO ใช้ 1e-4)
     และ/หรือขยายช่วงกู้ได้เป็น U(0, 0.10) (สมมติฐาน ค) ทีละอย่าง
   - ระหว่างรอ job ทำ M3 ได้ (sbatch ใน `scripts/lanta/` + throughput จาก resources.jsonl / manifest steady_transitions_per_second)
+
+### รอบ 2026-10-08 19:00
+- **job ที่จบ:** `20261008-162754-s2cw25` ใช้ 2:29 ชม. (exit 0)
+  ผล update 200: รอดกลุ่มกู้ได้ 70.8 / 87.5 / 70.8% (S1 87.5 / 95.8 / 95.8%), false give-up 33.3 / 13.0 / 28.3%,
+  damage กลุ่มกู้ไม่ได้ต่ำกว่า S1 และปล่อยตัวทุก seed → **M2 ไม่ผ่าน** trend 50/100/150 ยังแกว่ง (FGU 4.3–17.4%)
+  สรุปว่า critic warm-up ไม่ใช่ทางแก้ (สมมติฐาน ก ตกไป) บันทึกตารางลง Curriculum_Plan ส่วน 5 แล้ว ยังไม่เขียน m2_summary.json
+- **ทำอะไร (ทำเอง):** เพิ่ม `--learning-rate` ใน `train.py` (`set_learning_rate` จะ override LR ของ checkpoint ที่โหลดมาหรือที่ resume
+  และบันทึก `learning_rate_override` ลง manifest) เพิ่ม env `LR` ใน `run_stage1.sh` และ `run_stage2_pilot.sh` (tag `_lr<LR>`)
+  เพิ่มสคริปต์ใหม่ `scripts/run_stage2_lr.sh` (LR=3e-5, ไม่มี warm-up, เทรน + eval 200 + trend 50/100/150)
+  และ test `test_learning_rate_override_applies_to_a_loaded_checkpoint`
+- **verify:** pytest ผ่านทั้งหมด, M1 PASS, M2–M4 FAIL
+- **job ที่สั่ง:** `20261008-190041-s2lr3e5` = `bash scripts/run_stage2_lr.sh 63001 63002 63003`
+  ผลออกที่ `results/stage2/seed_*/push_0.08_hard0.5_posture1.0_s2_dmg10000_lr3e-5/` คาดว่าใช้ ~2.5 ชม.
+- **ปัญหา:** M2 ไม่ผ่านมา 2 รอบแล้ว (s2_dmg10000, cw25) ถ้ารอบ LR ยังไม่ผ่าน ต้องขอความเห็นที่สองจาก Codex (วิเคราะห์อย่างเดียว)
+  ข้อสังเกต: ประเมิน 48 episodes และ S1 รอด ~42–46 ตัว FGU 1 episode ≈ 2.2 จุด จึงมี noise สูง
+- **งานถัดไป:** ระหว่างรอ job (ห้ามสั่งเทรนซ้อน) ให้ทำ M3: `scripts/lanta/*.sbatch` (recipe S1 + S2 บน CPU node),
+  throughput จาก manifest/resources.jsonl, ร่าง `planning/LANTA_Compute_Estimate_TH.md` (ยังไม่เขียน m3_compute.json จนกว่า transitions S2 to gate จะรู้ค่า
+  หรือให้ระบุชัดว่าเป็นค่าประมาณ) พอ job จบ ให้อ่าน s2_eval*.json ของ `lr3e-5` แล้วเทียบกับ 2 run ก่อนหน้า
+  ถ้ายังไม่ผ่าน → ขอ Codex วิเคราะห์ จากนั้นลองสมมติฐาน (ค) ขยายช่วงกู้ได้เป็น U(0, 0.12) หรือ DAMAGE_W 3000

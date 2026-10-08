@@ -172,6 +172,12 @@ def set_actor_trainable(model: PPO, trainable: bool) -> None:
         parameter.requires_grad_(trainable)
 
 
+def set_learning_rate(model: PPO, learning_rate: float) -> None:
+    """Replace a loaded model's constant learning rate (applied to Adam at each update)."""
+    model.learning_rate = learning_rate
+    model._setup_lr_schedule()
+
+
 def create_model(
     env: VecEnv, device: str, seed: int, n_steps: int, network_width: int = 128,
     log_std_init: float = 0.0, gamma: float = 0.999,
@@ -311,7 +317,7 @@ def run_training(
     posture_version: int = 1, natural_stance: bool = False,
     hard_push_range: tuple[float, float] | None = None,
     fall_continue_s: float = 0.0, damage_weight: float = 0.0,
-    critic_warmup_updates: int = 0,
+    critic_warmup_updates: int = 0, learning_rate: float | None = None,
 ) -> dict[str, object]:
     if environment not in ("planar", "3d"):
         raise ValueError("environment must be planar or 3d")
@@ -394,6 +400,9 @@ def run_training(
                 # A new curriculum phase may restart exploration at a chosen noise level.
                 with torch.no_grad():
                     model.policy.log_std.fill_(log_std)
+            if learning_rate is not None:
+                # Fine-tuning may use a smaller step than the checkpoint was trained with.
+                set_learning_rate(model, learning_rate)
         else:
             # Curriculum modes start with smaller exploration noise (std ~0.37).
             model = create_model(env, device, seed, n_steps, network_width,
@@ -544,6 +553,7 @@ def run_training(
             "hard_push_range": list(hard_push_range) if hard_push_range else None,
             "fall_continue_s": fall_continue_s, "damage_weight": damage_weight,
             "critic_warmup_updates": critic_warmup_updates,
+            "learning_rate_override": learning_rate,
             "gamma": gamma, "norm_reward": norm_reward,
             "init_checkpoint": str(init_checkpoint) if init_checkpoint else None,
             "resumed_from_update": resumed_from, "log_std_override": log_std,
@@ -629,6 +639,8 @@ def main() -> None:
     parser.add_argument("--critic-warmup-updates", type=int, default=0,
                         help="freeze the actor (policy net, action net, log-std) for the first N "
                              "updates so only the value net adapts to a new reward")
+    parser.add_argument("--learning-rate", type=float, default=None,
+                        help="override the learning rate of --init-checkpoint / --resume")
     args = parser.parse_args()
     wrapper = args.wrapper or ("dummy" if args.n_envs == 1 else "subproc")
     result = run_training(args.output, args.device, args.condition, args.seed,
@@ -642,7 +654,7 @@ def main() -> None:
                           args.natural_stance,
                           tuple(args.hard_push_range) if args.hard_push_range else None,
                           args.fall_continue_s, args.damage_weight,
-                          args.critic_warmup_updates)
+                          args.critic_warmup_updates, args.learning_rate)
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
