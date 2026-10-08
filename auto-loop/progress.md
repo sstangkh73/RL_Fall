@@ -115,3 +115,20 @@
   - ตอนประเมินต้องสร้าง env ด้วย `fall_continue_s=2.5` แต่ไม่ต้องใส่ damage_weight (ไม่มีผลต่อการวัด)
   พอ job จบให้รัน eval ทั้ง 3 seeds แล้วเขียน `auto-loop/milestones/m2_summary.json` เฉพาะเมื่อมีผลจริง
   ถ้า S2 damage ไม่ต่ำกว่า S1 ให้ลอง shaping F/tol เฉพาะ geom ที่ไม่ใช่เท้า หรือเพิ่ม DAMAGE_W
+
+### รอบ 2026-10-08 13:45
+- **ทำอะไร (M2, Codex + ทำเอง):** Codex เขียน `scripts/stage2_eval.py` + `tests/test_stage2_eval.py` (spec อยู่ใน `worklog/codex_task_stage2_eval.md`)
+  ตรวจ diff แล้ว: scenario คู่กัน S2/S1/passive, กลุ่มกู้ได้ 0.05/0.08 ×24, กู้ไม่ได้ 0.15/0.20/0.25 ×16, `fall_continue_s=2.5`, ไม่ใส่ damage_weight,
+  weighted damage เฉลี่ยทุก episode (รวมที่ไม่ล้ม), false_give_up และ head_damage_share ตามนิยามใน GOAL.md เขียน `<S2 run>/s2_eval.json`
+  smoke (S1 เทียบกับตัวเอง, scale 0.1): ผล S2 = S1 ตรงกันทุกค่า (deterministic) ~31 วินาทีต่อ 30 episodes → เต็ม 288 episodes ~5 นาที/seed (ถ้าไม่แย่ง CPU)
+  ทำเอง: `scripts/run_stage2_eval.sh` (หา run S2 ล่าสุดกับ natural4_r2 ของแต่ละ seed แล้วเรียก eval)
+- **verify:** pytest ผ่าน (รวม test ใหม่), M1 PASS, M2–M4 FAIL (ยังไม่มีผล)
+- **job ที่กำลังรัน:** `20261008-133651-s2pilot` (สั่งรอบก่อน คาดว่าใช้ ~2–2.5 ชม.)
+- **job ที่สั่ง:** `20261008-134435-s2eval` = `while pgrep -f run_stage2_pilot.sh; do sleep 60; done; bash scripts/run_stage2_eval.sh 63001 63002 63003`
+  รอ pilot จบก่อนแล้วค่อย eval คาดว่าใช้ ~15–30 นาทีหลัง pilot จบ
+- **job ที่จบ:** ไม่มี
+- **ปัญหา:** คำสั่งเดียวกันใน Bash tool ที่มี heredoc + `{"` ถูก block ("expansion obfuscation") ให้เขียน prompt Codex ลงไฟล์ด้วย Write แล้วสั่ง Codex ให้อ่านไฟล์นั้น
+- **งานถัดไป:** อ่าน log ของ s2pilot (updates.csv: damage penalty, survival) และ `s2_eval.json` ทั้ง 3 seeds แล้วบันทึกตารางลง Curriculum_Plan ส่วน 5
+  ถ้าผ่านเกณฑ์ (S2 รอดกลุ่มกู้ได้ ≥ S1−5pp, damage กลุ่มกู้ไม่ได้ < S1 และ < passive, false give-up ≤10%) ให้เขียน `auto-loop/milestones/m2_summary.json`
+  (run_dir = run S2, eval_file = s2_eval.json ทั้ง 3 seeds ห้ามเลือก seed) ถ้าไม่ผ่าน: ลอง shaping F/tol เฉพาะ geom ที่ไม่ใช่เท้า หรือเพิ่ม DAMAGE_W
+  ระหว่างรอ ทำ M3 ได้ (sbatch ใน `scripts/lanta/`, throughput จาก resources.jsonl)
