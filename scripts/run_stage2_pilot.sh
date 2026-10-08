@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # S2 pilot (recover or fall): fine-tune the M1 policy (natural4_r2, update 200).
-# Usage: [DAMAGE_W=10000] [UPDATES=200] [CRITIC_WARMUP=0] scripts/run_stage2_pilot.sh [seed ...]
+# Usage: [DAMAGE_W=10000] [UPDATES=200] [CRITIC_WARMUP=0] [RECOVERABLE_MAX=0.08] scripts/run_stage2_pilot.sh [seed ...]
 #        (default seeds 63001 63002 63003)
 # Same S1 shaping (natural stance v4, capture point) plus:
 #   pushes half recoverable U(0, 0.08) and half unrecoverable U(0.15, 0.25)
@@ -14,6 +14,8 @@ SEEDS=("${@:-63001 63002 63003}")
 read -r -a SEEDS <<< "${SEEDS[*]}"
 DAMAGE_W="${DAMAGE_W:-10000}"
 UPDATES="${UPDATES:-200}"
+# RECOVERABLE_MAX is the top of the recoverable push range U(0, max); results go to push_<max>_...
+RECOVERABLE_MAX="${RECOVERABLE_MAX:-0.08}"
 # CRITIC_WARMUP=N freezes the actor for the first N updates so the S1 critic can learn
 # the post-fall states and damage cost before the policy moves (tag gets _cw<N>).
 CRITIC_WARMUP="${CRITIC_WARMUP:-0}"
@@ -27,7 +29,7 @@ for SEED in "${SEEDS[@]}"; do
   env BODY=v1_0 POSTURE=1.0 POSTURE_VERSION=4 NATURAL=1 CP=10 HARD=0.5 HARD_RANGE="0.15 0.25" \
       FALL_CONTINUE=2.5 DAMAGE_W="$DAMAGE_W" OUT_ROOT=results/stage2 STAGE=S2_recover_or_fall \
       INIT_CHECKPOINT="$S1/checkpoint.zip" TAG="$TAG" CRITIC_WARMUP="$CRITIC_WARMUP" LR="$LR" \
-      scripts/run_stage1.sh "$SEED" "$UPDATES" 0.08
+      scripts/run_stage1.sh "$SEED" "$UPDATES" "$RECOVERABLE_MAX"
   echo "=== S2 seed $SEED done $(date '+%F %T')"
 done
 echo "=== S2 seeds done $(date '+%F %T')"

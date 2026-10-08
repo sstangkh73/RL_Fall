@@ -33,6 +33,16 @@ Reward: standing ~1.5/step (gamma 0.99 → value ~150); a typical fall costs ~15
 should NOT favour giving up. Obs includes `remaining` time. A no-damage control (DAMAGE_W=0, same everything else)
 is now running to test whether the drop is just continued-PPO drift.
 
+## New results (2026-10-09)
+4. Control DAMAGE_W=0 (same recipe otherwise), update 200: recoverable survival 66.7/79.2/93.8%, FGU 28.6/19.6/6.5%;
+   trend 50/100/150 FGU 2.2-26.2%. => the FGU is NOT caused by the damage term.
+5. Noise floor: S1 checkpoints update 125/150/175 evaluated against S1 update 200 (no S2 at all):
+   FGU 63001 7.1/2.4/11.9, 63002 2.2/4.3/0.0, 63003 0.0/4.3/10.9 (mean ~5%), recoverable survival 89.6-100%.
+6. Per impulse at update 200 (S2 vs S1 survival): at 0.05 S2 is mostly 79-100% vs S1 96-100%;
+   at 0.08 S2 is 21-88% vs S1 75-96%. The loss sits at 0.08, the TOP of the S2 recoverable training range.
+   S1 (natural4_r2) was trained with recoverable U(0,0.12) + hard U(0.13,0.25); S2 trains U(0,0.08) + U(0.15,0.25),
+   so S2 never sees 0.08-0.15. A run with recoverable U(0,0.12) (everything else base) is now training.
+
 ## Questions
 1. Most likely root cause(s) of the oscillating recoverable-push survival loss? Look for concrete code-level issues
    (e.g. reward after fall / fallen latch / termination vs truncation & bootstrapping with fall_continue,

@@ -265,3 +265,23 @@
   (`worklog/codex_task_s2_fgu_analysis.md` + เพิ่มผล control dmg0 และ noise floor ลงไปก่อน)
   - noise floor สูง (S1 เทียบตัวเอง FGU ≥10%) → ทางแก้คือ anchor ไปที่ S1 (KL/BC บนแรงผลักที่กู้ได้) หรือเทรน S2 จาก S1 แบบ freeze/residual
   - noise floor ต่ำ (≤5%) → env ของ S2 ทำให้ทักษะหาย ลองขยายช่วงกู้ได้เป็น U(0, 0.12) ให้ตรงกับ S1 (สมมติฐาน ค)
+
+### รอบ 2026-10-09 02:45
+- **job ที่จบ:** `20261009-021413-s1fgufloor` ใช้ 27:33 นาที (exit 0) noise floor ของ FGU (S1 update 125/150/175 เทียบกับ 200)
+  FGU 7.1/2.4/11.9, 2.2/4.3/0.0, 0.0/4.3/10.9% (เฉลี่ย ~4.8%) รอดกลุ่มกู้ได้ 89.6–100% → noise มีจริงแต่ S2 (FGU 6.5–65%) ทำให้ทักษะหายจริง
+- **วิเคราะห์ (ทำเอง):** `worklog/s2_per_impulse.py` แยกผลตามแรงผลัก ทักษะหายมากสุดที่ 0.08 (S2 21–88% เทียบ S1 75–96%) ส่วน 0.05 ยังดีกว่า
+  ซึ่ง 0.08 เป็นขอบบนของช่วงกู้ได้ตอนเทรน S2 แต่ S1 เทรนด้วย U(0, 0.12) + U(0.13, 0.25) → สนับสนุนสมมติฐาน ค
+- **Codex (ความเห็นที่สอง วิเคราะห์อย่างเดียว ไม่ได้แก้ไฟล์):** ไม่พบ bug ที่ทำให้ gate ตก แนะนำให้ (1) ลอง U(0, 0.12) ก่อน
+  แล้ว (2) BC/KL anchor ไปที่ S1 บนแรงผลักที่กู้ได้ (ใช้ normalizer ของแต่ละ policy และไม่รวม state หลังล้ม)
+  ไม่แนะนำให้ลด DAMAGE_W หรือเพิ่มจำนวน updates พบ bug ใน telemetry ที่ `train.py:153` ซึ่งนับ `falls` ต่อ step แทนต่อ episode (ยังไม่ได้แก้ เพราะไม่กระทบผล)
+  log อยู่ที่ `auto-loop/.loop/codex/20261009-024544.log` บันทึกทั้งหมดลง Curriculum_Plan ส่วน 5 แล้ว
+- **แก้ (ทำเอง):** เพิ่ม env `RECOVERABLE_MAX` (default 0.08 ผลเดิมไม่เปลี่ยน) ใน `run_stage2_pilot.sh`, `run_stage2_eval.sh` และ `run_stage2_eval_trend.sh`
+  และเพิ่ม `scripts/run_stage2_wide.sh` (RECOVERABLE_MAX=0.12, DAMAGE_W=10000, lr 1e-4, เทรน + eval 200 + trend 50/100/150)
+- **job ที่สั่ง:** `20261009-024529-s2wide` = `bash scripts/run_stage2_wide.sh 63001 63002 63003`
+  ผลออกที่ `results/stage2/seed_*/push_0.12_hard0.5_posture1.0_s2_dmg10000/` (log ยืนยันแล้วว่า push<=0.12) คาดว่าใช้ ~2.5–3 ชม.
+- **verify:** ไม่ได้รัน เพราะแก้แค่ shell script ไม่ได้แก้ src/tests และไม่อยากแย่ง CPU กับ job (`bash -n` ติด permission จึงไม่ได้ตรวจ syntax แต่ log แสดงว่าสคริปต์รันได้)
+  ผลล่าสุด (02:43) คือ pytest ผ่าน, M1 PASS, M2–M4 FAIL
+- **งานถัดไป:** อ่าน s2_eval*.json ของ `push_0.12_..._s2_dmg10000` (รวมถึงผลแยกแรงผลักด้วย `worklog/s2_per_impulse.py`) แล้วบันทึกลง Curriculum_Plan ส่วน 5
+  - ถ้าผ่าน gate ครบ 3 seeds ที่ update 200 → เขียน `auto-loop/milestones/m2_summary.json` แล้วแก้ตัวเลข S2 ใน M3 และเขียน m3_compute.json
+  - ถ้าไม่ผ่าน → ทำ BC/KL anchor ไปที่ S1 (ส่งให้ Codex เขียนได้: เพิ่ม auxiliary loss ใน `train.py` ที่ใช้ S1 ตัวที่แช่แข็งไว้
+    บน state ที่ยังไม่ล้มและเป็นแรงผลักที่กู้ได้ พร้อม test) ห้ามเลือก checkpoint ที่ผลดีเอง ต้องใช้ update 200 ทุก seed
