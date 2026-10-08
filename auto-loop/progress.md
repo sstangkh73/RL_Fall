@@ -85,3 +85,33 @@
 - **งานถัดไป:** อ่านผล falldmg2 แล้วบันทึกลง Curriculum_Plan (ส่วน S2) จากนั้นออกแบบ env S2 ใน `env3d.py`
   (`fall_continue_s`, weighted damage reward, push แบบกู้ได้ ≤0.08 / กู้ไม่ได้ ≥0.15 อย่างละครึ่ง, fine-tune จาก natural4_r2)
   และสคริปต์ `scripts/stage2_eval.py` ที่เขียน s2_eval.json ตามสัญญาใน GOAL.md (ส่วนนี้ส่งให้ Codex ได้)
+
+### รอบ 2026-10-08 13:38
+- **job ที่จบ:** `20261008-132923-falldmg2` ใช้ 2:31 นาที (exit 0) บันทึกตารางลง `planning/Curriculum_Plan_TH.md` ส่วน 5 แล้ว
+  weighted damage ต่อการล้มของปล่อยตัวอยู่ที่ 0.0015–0.0023 ส่วน S1 อยู่ที่ 0.0009–0.0029 (มักต่ำกว่าปล่อยตัว)
+  เกือบทั้งหมดมาจากลำตัว ศีรษะไม่เคยถึง tolerance (head share น่าจะเป็น ~0) ส่วน passive ให้ผลเหมือนกันทุก seed เพราะใช้ scenario เดียวกัน
+- **ทำอะไร (M2, ทำเอง เพราะเป็นการออกแบบ reward):** เพิ่ม S2 ใน `src/rl_fall/env3d.py` (ทุกอย่างปิดไว้เป็นค่าเริ่มต้น ผล S1 เดิมจึงไม่เปลี่ยน)
+  - `fall_continue_s`: ล้มแล้วไม่จบ episode รันต่อตามเวลาที่กำหนด และ `fallen` latch ไว้ (ลุกได้ก็ไม่ได้โบนัสคืน)
+  - `damage_weight`: โทษ = weight × Σ(5,2,1,1,1,1)·damage_increment ต่อ step (`S2_DAMAGE_WEIGHTS`)
+    info มี `weighted_damage_increment` และ `reward_damage_penalty` ด้วย
+  - `train.py` เพิ่ม `--fall-continue-s`, `--damage-weight` และ stage `S2_recover_or_fall` ส่วน `run_stage1.sh` เพิ่ม env
+    `FALL_CONTINUE`, `DAMAGE_W`, `OUT_ROOT`, `STAGE`
+  - `scripts/run_stage2_pilot.sh`: fine-tune จาก natural4_r2 200 updates, push กู้ได้ U(0,0.08) และกู้ไม่ได้ U(0.15,0.25) อย่างละครึ่ง,
+    รันต่อ 2.5 วิหลังล้ม, DAMAGE_W=10000 ผลออกที่ `results/stage2/seed_*/push_0.08_hard0.5_posture1.0_s2_dmg10000/3d_*`
+  - test ใหม่ `test_s2_fall_runs_on_and_charges_weighted_damage`
+  - smoke 2 updates: ~1,800 transitions/s, โทษ damage ~−400 ต่อ update (~20 ต่อการล้ม) ต่อ reward ยืน ~16,000
+- **เหตุผลที่เลือก DAMAGE_W=10000:** damage ต่อการล้ม ~0.0015 ทำให้เสีย ~15 reward ซึ่งมีนัยเมื่อเทียบกับ reward หลังล้ม (0)
+  แต่น้อยกว่าโบนัสยืนที่เสียไปเมื่อล้มมาก การยืนจึงดีกว่าล้มเสมอ (ไม่สร้าง false give-up)
+  ยังไม่ใส่ shaping F/tol เพราะแรงที่เท้าตอนยืนจะโดนคิดไปด้วย
+- **verify:** pytest ผ่าน, M1 PASS, M2–M4 FAIL (ยังไม่มีผล)
+- **job ที่สั่ง:** `20261008-133651-s2pilot` = `bash scripts/run_stage2_pilot.sh 63001 63002 63003`
+  คาดว่าใช้ ~2–2.5 ชม. (3 × 200 updates ที่ ~1,800/s ≈ 30 นาที + eval checkpoint ต่อ seed)
+- **ปัญหา:** ใน `wsl.exe -- bash -lc '...'` ตัวแปร shell (`$S1`) ถูกแทนค่าเป็นค่าว่างก่อนถึง bash ให้ใส่ path ตรงๆ หรือเรียกผ่านสคริปต์
+- **งานถัดไป (ระหว่างรอ job):** ส่งให้ Codex เขียน `scripts/stage2_eval.py` ที่เขียน `s2_eval.json` ตามสัญญาใน GOAL.md
+  - ใช้ scenario คู่กัน (seed เดียวกัน) สำหรับ S2, S1 (natural4_r2 update 200) และปล่อยตัว รันต่อ 2.5 วิหลังล้ม แล้ววัด weighted damage
+    (ดูวิธีจาก `scripts/diag_fall_damage.py`)
+  - กลุ่มกู้ได้: impulse 0.05 กับ 0.08 อย่างละ 24 (รวม 48), กลุ่มกู้ไม่ได้: 0.15/0.20/0.25 อย่างละ 16 (รวม 48)
+  - false_give_up = สัดส่วนของ scenario กู้ได้ที่ S1 รอดแต่ S2 ล้ม (เทียบกับจำนวนที่ S1 รอด), head_damage_share = head damage×5 / weighted รวม (กลุ่มกู้ไม่ได้ของ S2)
+  - ตอนประเมินต้องสร้าง env ด้วย `fall_continue_s=2.5` แต่ไม่ต้องใส่ damage_weight (ไม่มีผลต่อการวัด)
+  พอ job จบให้รัน eval ทั้ง 3 seeds แล้วเขียน `auto-loop/milestones/m2_summary.json` เฉพาะเมื่อมีผลจริง
+  ถ้า S2 damage ไม่ต่ำกว่า S1 ให้ลอง shaping F/tol เฉพาะ geom ที่ไม่ใช่เท้า หรือเพิ่ม DAMAGE_W

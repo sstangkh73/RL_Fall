@@ -127,6 +127,13 @@ NATURAL_SETTLE_S = 1.5
 # and feet set slightly wider or narrower (+/- per-hip spread).
 NATURAL_SHIFT_RAD = 0.06
 NATURAL_SPREAD_RAD = (-0.02, 0.04)
+# S2 (recover or fall): falls no longer end the episode; it runs on for
+# fall_continue_s so the impact is scored, and weighted damage (head 5, torso 2,
+# limbs 1; Curriculum plan section 5) is charged at damage_weight per unit. Falls of
+# the S1 policy score ~0.001-0.003 weighted damage (8 Oct), so a weight of a few
+# thousand makes a typical fall cost ~10 reward against ~1.5 per step standing:
+# standing always pays more than any fall, so the cost cannot teach giving up.
+S2_DAMAGE_WEIGHTS = np.array([5.0, 2.0, 1.0, 1.0, 1.0, 1.0])  # PARTS order
 FALL_TORSO_HEIGHT_M = 0.45
 FALL_UPRIGHT_COS = 0.5
 
@@ -156,6 +163,8 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         posture_version: int = 1,
         natural_stance: bool = False,
         hard_push_range: tuple[float, float] | None = None,
+        fall_continue_s: float = 0.0,
+        damage_weight: float = 0.0,
     ) -> None:
         super().__init__()
         condition = condition.upper()
@@ -183,6 +192,11 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         if natural_stance and body not in BODY_SPECS:
             raise ValueError("natural_stance needs a spec body (v1_0)")
         self.hard_push_range = tuple(hard_push_range or HARD_PUSH_RANGE)
+        if fall_continue_s < 0.0 or damage_weight < 0.0:
+            raise ValueError("fall_continue_s and damage_weight must be >= 0")
+        self.fall_continue_s = float(fall_continue_s)
+        self.damage_weight = float(damage_weight)
+        self._fall_step: int | None = None
         self.body_height = BODY_HEIGHT_M.get(body, 1.2)
         self.body = body
         self.mode = mode
@@ -443,6 +457,7 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         self.last_applied_torque.fill(0.0)
         self._non_foot_floor_contact = False
         self.fallen = False
+        self._fall_step = None
         if self.sole_geom_ids:
             self._nominal_feet = self._feet_vector()
         self._feet_reanchored = False
@@ -572,8 +587,11 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         step_peak_loads: dict[str, float],
     ):
         upright = self._upright_cos()
+        # With fall_continue_s a fall is final: getting the trunk back up later
+        # does not restore the survival bonus.
         self.fallen = (
-            self._torso_xyz()[2] < self.fall_trunk_height
+            (self.fall_continue_s > 0.0 and self.fallen)
+            or self._torso_xyz()[2] < self.fall_trunk_height
             or upright < FALL_UPRIGHT_COS
             or self._non_foot_floor_contact
         )
@@ -605,14 +623,26 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
             reward -= posture_penalty
         capture_bonus = self._capture_point_bonus() if not self.fallen else 0.0
         reward += capture_bonus
+        weighted_increment = float(S2_DAMAGE_WEIGHTS @ total_increment)
+        damage_penalty = self.damage_weight * weighted_increment
+        reward -= damage_penalty
         self.previous_action[:] = action
         self.elapsed_steps += 1
-        terminated = self.fallen or self.elapsed_steps >= self.config.max_episode_steps
+        if self.fallen and self._fall_step is None:
+            self._fall_step = self.elapsed_steps
+        if self.fall_continue_s > 0.0:
+            fall_over = self.fallen and (
+                (self.elapsed_steps - self._fall_step) * self.config.control_dt
+                >= self.fall_continue_s)
+        else:
+            fall_over = self.fallen
+        terminated = fall_over or self.elapsed_steps >= self.config.max_episode_steps
         observation = self._get_observation(sample_sensor=True)
         info = self._info(total_increment, success=False)
         info["step_peak_contact_loads_n"] = step_peak_loads
         info["reward_task"] = 0.0
-        info["reward_damage_penalty"] = 0.0
+        info["reward_damage_penalty"] = -damage_penalty
+        info["weighted_damage_increment"] = weighted_increment
         info["reward_balance"] = reward
         info["posture_penalty"] = posture_penalty
         info["capture_point_bonus"] = capture_bonus

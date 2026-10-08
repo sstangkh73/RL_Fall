@@ -298,6 +298,7 @@ def run_training(
     log_std: float | None = None, capture_point_weight: float = 0.0,
     posture_version: int = 1, natural_stance: bool = False,
     hard_push_range: tuple[float, float] | None = None,
+    fall_continue_s: float = 0.0, damage_weight: float = 0.0,
 ) -> dict[str, object]:
     if environment not in ("planar", "3d"):
         raise ValueError("environment must be planar or 3d")
@@ -308,7 +309,8 @@ def run_training(
          "hard_push_fraction": hard_push_fraction, "posture_weight": posture_weight,
          "capture_point_weight": capture_point_weight,
          "posture_version": posture_version, "natural_stance": natural_stance,
-         "hard_push_range": hard_push_range}
+         "hard_push_range": hard_push_range,
+         "fall_continue_s": fall_continue_s, "damage_weight": damage_weight}
         if environment == "3d" else None
     )
     # Task-mode evaluation keeps the benchmark's impaired condition-B scenarios;
@@ -526,6 +528,7 @@ def run_training(
             "capture_point_weight": capture_point_weight,
             "posture_version": posture_version, "natural_stance": natural_stance,
             "hard_push_range": list(hard_push_range) if hard_push_range else None,
+            "fall_continue_s": fall_continue_s, "damage_weight": damage_weight,
             "gamma": gamma, "norm_reward": norm_reward,
             "init_checkpoint": str(init_checkpoint) if init_checkpoint else None,
             "resumed_from_update": resumed_from, "log_std_override": log_std,
@@ -577,7 +580,7 @@ def main() -> None:
     parser.add_argument("--evaluation-scenarios", type=int, default=0)
     parser.add_argument("--stage", choices=("smoke", "P2_screening", "P3_confirmation",
                                              "P4_learning", "learning_curve",
-                                             "S1_balance"),
+                                             "S1_balance", "S2_recover_or_fall"),
                         default="smoke")
     parser.add_argument("--checkpoint-updates", nargs="*", type=int, default=())
     parser.add_argument("--environment", choices=("planar", "3d"), default="planar")
@@ -604,6 +607,10 @@ def main() -> None:
                         help="start episodes from a randomised relaxed stance (spec bodies)")
     parser.add_argument("--hard-push-range", nargs=2, type=float, default=None,
                         help="impulse range of the step-requiring pushes (default 0.13 0.25)")
+    parser.add_argument("--fall-continue-s", type=float, default=0.0,
+                        help="S2: keep running this long after a fall instead of ending the episode")
+    parser.add_argument("--damage-weight", type=float, default=0.0,
+                        help="S2: reward cost per unit of weighted damage (head 5, torso 2, limbs 1)")
     args = parser.parse_args()
     wrapper = args.wrapper or ("dummy" if args.n_envs == 1 else "subproc")
     result = run_training(args.output, args.device, args.condition, args.seed,
@@ -615,7 +622,8 @@ def main() -> None:
                           args.hard_push_fraction, args.posture_weight, args.resume,
                           args.log_std, args.capture_point_weight, args.posture_version,
                           args.natural_stance,
-                          tuple(args.hard_push_range) if args.hard_push_range else None)
+                          tuple(args.hard_push_range) if args.hard_push_range else None,
+                          args.fall_continue_s, args.damage_weight)
     print(json.dumps(result, indent=2, sort_keys=True))
 
 

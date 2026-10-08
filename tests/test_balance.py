@@ -232,3 +232,40 @@ def test_v4_posture_cost_returns_after_the_push_settles_from_re_anchored_feet():
     env4._nominal_feet = env4._feet_vector() + np.array([0.20, 0.0])  # then shuffle 20 cm
     _, reward, _, _, info = env4.step(np.zeros(69, dtype=np.float32))
     assert info["posture_penalty"] > 0.0 and reward > 0.0   # post-settle drift costs again
+
+
+def _push_hard(env, impulse=0.30):
+    mass = float(np.sum(env.model.body_mass))
+    env.push_force_world = (impulse * mass * np.sqrt(9.81 * env.body_height)
+                            / env.push_duration * np.array([1.0, 0.0, 0.0]))
+
+
+def test_s2_fall_runs_on_and_charges_weighted_damage():
+    from rl_fall.env3d import S2_DAMAGE_WEIGHTS
+
+    def run(**s2):
+        env = RLFall3DEnv(condition="A", seed=21, body="v1_0", mode="balance",
+                          max_push_impulse=0.0, **s2)
+        env.reset(seed=21)
+        _push_hard(env)
+        rows = []
+        while True:
+            _, reward, terminated, _, info = env.step(np.zeros(69, dtype=np.float32))
+            rows.append((reward, info))
+            if terminated:
+                return env, rows
+
+    env1, rows1 = run()                                  # S1: the fall ends the episode
+    assert rows1[-1][1]["fallen"] and env1.elapsed_steps < env1.config.max_episode_steps
+    env2, rows2 = run(fall_continue_s=1.0, damage_weight=1000.0)
+    fall = next(i for i, (_, info) in enumerate(rows2) if info["fallen"])
+    assert fall == len(rows1) - 1                        # same physics up to the fall
+    assert len(rows2) - 1 - fall == 50                   # runs on 1.0 s (50 control steps)
+    assert all(info["fallen"] for _, info in rows2[fall:])   # a fall is final
+    weighted = 0.0
+    for reward, info in rows2[fall:]:
+        expected = float(S2_DAMAGE_WEIGHTS @ np.array(info["damage_increment"]))
+        assert info["weighted_damage_increment"] == pytest.approx(expected)
+        assert reward == pytest.approx(-1000.0 * expected)   # no survival bonus once down
+        weighted += expected
+    assert weighted > 0.0                                # the impact is scored

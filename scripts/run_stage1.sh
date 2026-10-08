@@ -16,6 +16,10 @@
 #                    3 = natural stance, cost keeps growing but reward stays positive (default 1)
 #   NATURAL  1 = start from a randomised relaxed stance (default 0)
 #   HARD_RANGE  "lo hi" impulse range of the step-requiring pushes (default 0.13 0.25)
+#   FALL_CONTINUE  S2: seconds to keep running after a fall (default: a fall ends the episode)
+#   DAMAGE_W  S2: reward cost per unit of weighted damage (default 0)
+#   OUT_ROOT  results root (default results/stage1 or results/stage1_<body>)
+#   STAGE  manifest stage label (default S1_balance)
 set -euo pipefail
 
 SEED="${1:-61001}"
@@ -32,11 +36,15 @@ POSTURE_VERSION="${POSTURE_VERSION:-1}"
 EXTRA=()
 if [ "${NATURAL:-0}" = "1" ]; then EXTRA+=(--natural-stance); fi
 if [ -n "${HARD_RANGE:-}" ]; then read -r -a RANGE <<< "$HARD_RANGE"; EXTRA+=(--hard-push-range "${RANGE[@]}"); fi
+if [ -n "${FALL_CONTINUE:-}" ]; then EXTRA+=(--fall-continue-s "$FALL_CONTINUE"); fi
+if [ -n "${DAMAGE_W:-}" ]; then EXTRA+=(--damage-weight "$DAMAGE_W"); fi
+STAGE="${STAGE:-S1_balance}"
 TAG="${TAG:-}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="${PY:-$HOME/venvs/rl_fall/bin/python}"
 if [ "$BODY" = "v0_2" ]; then OUT="results/stage1/seed_${SEED}"
 else OUT="results/stage1_${BODY}/seed_${SEED}"; fi
+if [ -n "${OUT_ROOT:-}" ]; then OUT="${OUT_ROOT}/seed_${SEED}"; fi
 cd "$ROOT"
 export PYTHONPATH="$ROOT/src"
 mkdir -p "$OUT"
@@ -62,7 +70,7 @@ for LEVEL in "${LEVELS[@]}"; do
         "$PY" -m rl_fall.train --environment 3d --body "$BODY" --mode balance \
             --hard-push-fraction "$HARD" --posture-weight "$POSTURE" \
             --capture-point-weight "$CP" --posture-version "$POSTURE_VERSION" "${EXTRA[@]}" \
-            --condition A --max-push-impulse "$LEVEL" --stage S1_balance \
+            --condition A --max-push-impulse "$LEVEL" --stage "$STAGE" \
             --device cpu --seed "$SEED" --n-envs 8 --threads 4 \
             --warmup-updates 0 --measured-updates "$UPDATES" --evaluation-scenarios 64 \
             --checkpoint-updates $(seq 0 "$EVERY" "$UPDATES") "${START[@]}" >> "$LEVEL_OUT.log" 2>&1
