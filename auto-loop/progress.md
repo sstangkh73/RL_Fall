@@ -197,3 +197,21 @@
   throughput จาก manifest/resources.jsonl, ร่าง `planning/LANTA_Compute_Estimate_TH.md` (ยังไม่เขียน m3_compute.json จนกว่า transitions S2 to gate จะรู้ค่า
   หรือให้ระบุชัดว่าเป็นค่าประมาณ) พอ job จบ ให้อ่าน s2_eval*.json ของ `lr3e-5` แล้วเทียบกับ 2 run ก่อนหน้า
   ถ้ายังไม่ผ่าน → ขอ Codex วิเคราะห์ จากนั้นลองสมมติฐาน (ค) ขยายช่วงกู้ได้เป็น U(0, 0.12) หรือ DAMAGE_W 3000
+
+### รอบ 2026-10-08 19:10
+- **ทำอะไร (M3 ร่าง, ทำเอง):** ระหว่างรอ `s2lr3e5`
+  - ดึง throughput จาก manifest ทุก run (`worklog/m3_throughput.sh` + `worklog/m3_manifest.py`) ได้ว่ารันเดี่ยว S1 ~1,930 t/s และ S2 ~1,750–1,840 t/s
+    ถ้ารัน 2 job ซ้อนกันจะเหลือ ~480 t/s ต่อ job
+  - `scripts/lanta/bench_throughput.sbatch` (K runs พร้อมกัน แล้วรวม throughput), `s1_recipe.sbatch`, `s2_pilot.sbatch`
+    (ทุกไฟล์ใช้ `-p compute -N 1 -c 128 -A <project-account>` ยังไม่ได้ submit) และ `bash -n` ผ่านทั้งหมด
+  - `planning/LANTA_Compute_Estimate_TH.md` (ร่าง): S1 ถึง gate ใช้ 1,050 updates = 17.2M ต่อ seed, S2 สมมติ 400 updates,
+    S3 สมมติ 800 updates ×2 สำหรับช่วงพัฒนา, 56 runs ≈ 1,046M transitions, สมมติ 10 runs × 1,200 t/s ต่อ node → **~31 node-hours**
+    เสนอขอ ~100 node-hours แหล่งอ้างอิง LANTA: top500.org/system/180125 และ ThaiSC docs
+  - **ยังไม่เขียน m3_compute.json** เพราะ S2 ยังไม่ผ่าน gate (ตัวเลข S2 ยังเป็นค่าสมมติ) ต้องแก้ข้อ 2–5 ในเอกสารหลัง M2 ผ่าน
+  - Curriculum_Plan ข้อ 7: บันทึกว่าลดเหลือ 10 runs ต่อ node และชี้ไปที่เอกสารนี้
+- **verify:** ไม่ได้รัน เพราะไม่ได้แก้ src/tests (แก้แค่ sbatch และ doc) และไม่อยากแย่ง CPU กับ job เทรน ผลล่าสุดคือ pytest ผ่าน, M1 PASS
+- **job ที่กำลังรัน:** `20261008-190041-s2lr3e5` (สั่งรอบก่อน คาดว่าใช้ ~2.5 ชม.) **job ที่สั่ง/จบ:** ไม่มี
+- **ปัญหา:** `wsl.exe ... 2>&1 | head` และ `MSYS_NO_PATHCONV=...` ถูกขอ permission ให้ใช้ `wsl.exe -d Ubuntu -- bash -lc "bash /mnt/c/RL_Fall/<script>.sh"` แทน
+- **งานถัดไป:** อ่าน s2_eval*.json ของ `s2_dmg10000_lr3e-5` แล้วบันทึกลง Curriculum_Plan ส่วน 5
+  ถ้าผ่าน → m2_summary.json แล้วแก้ตัวเลข S2 ในเอกสาร M3 แล้วเขียน m3_compute.json
+  ถ้าไม่ผ่าน (ครั้งที่ 3) → ขอ Codex วิเคราะห์อย่างเดียว (ส่ง FGU/รอด ทั้ง 3 run + สิ่งที่ลองไปแล้ว) แล้วลอง U(0, 0.12) หรือ DAMAGE_W 3000

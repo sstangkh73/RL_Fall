@@ -523,6 +523,8 @@ damage = weighted damage เฉลี่ยต่อ episode, ไฟล์ผล
 - หลังผ่าน S1 และ S2 จะได้ "transitions ถึง gate" ของแต่ละขั้น แล้วคำนวณ
   node-hours = transitions × seeds × จำนวน config (ablation/λ) ÷ throughput ต่อ node × 1.3 (buffer)
 - LANTA CPU node (128 cores) วางได้ราว 12 runs พร้อมกัน (run ละ 8 envs + learner)
+  (8 ต.ค.: ลดเหลือ 10 runs ต่อ node เพราะถ้า thread เกินจำนวน core จะช้าลงหลายเท่า ร่างตัวเลขอยู่ใน
+  `planning/LANTA_Compute_Estimate_TH.md` ได้ ~31 node-hours ถ้า S2 ใช้ 400 updates ส่วน sbatch อยู่ใน `scripts/lanta/`)
 - **ขอโควตาใหญ่หลังได้ตัวเลข S1/S2 แล้วเท่านั้น** ระหว่างนี้ใช้ benchmark เป็นหลักฐานว่าควรขอ CPU node
 
 ## 8. รายการแก้โค้ด
