@@ -249,3 +249,19 @@
 - **งานถัดไป:** เหมือนรอบ 22:05 คืออ่าน s2_eval*.json ของ `s2_dmg0` แล้วบันทึกลง Curriculum_Plan ส่วน 5 (ใส่เวลา job s2ctrl + s2ctrl2)
   จากนั้นรัน Codex วิเคราะห์ (หลัง 02:32) ด้วย `worklog/codex_task_s2_fgu_analysis.md` + ผล control แล้วเลือกทางแก้
   (control FGU สูง → anchor ไปที่ S1 / ขยายช่วงกู้ได้; control FGU ต่ำ → DAMAGE_W 3000)
+
+### รอบ 2026-10-09 02:14
+- **job ที่จบ:** `20261008-235337-s2ctrl2` ใช้ 2:19 ชม. (exit 0) control `s2_dmg0` (DAMAGE_W=0) ครบ 3 seeds
+  update 200: รอดกลุ่มกู้ได้ 66.7 / 79.2 / 93.8%, FGU 28.6 / 19.6 / 6.5%, damage กลุ่มกู้ไม่ได้ 0.00094 / 0.00197 / 0.00147
+  trend 50/100/150 FGU 2.2–26.2% → **ไม่มี damage reward ก็ยังมี FGU แกว่งเท่าเดิม ต้นเหตุไม่ใช่ damage term**
+  (damage term ลด damage ได้จริง: dmg10000 ลดทุก seed ส่วน dmg0 ลดแค่ 63001) บันทึกตารางลง Curriculum_Plan ส่วน 5 แล้ว
+- **ทำอะไร (ทำเอง):** `scripts/run_s1_fgu_noise_floor.sh` เทียบ checkpoint S1 update 125/150/175 กับ S1 update 200 ด้วย `stage2_eval.py`
+  (S1 run อยู่ทั้งช่อง s2 และ s1) เพื่อวัด noise floor ของ FGU ที่เกิดจาก drift ปกติของการเทรน
+- **job ที่สั่ง:** `20261009-021413-s1fgufloor` = `bash scripts/run_s1_fgu_noise_floor.sh 63001 63002 63003`
+  ผลออกที่ `results/stage2/fgu_noise_floor/seed_*/s1_update_<N>_vs_200.json` คาดว่าใช้ ~35 นาที (9 evals × ~3.7 นาที)
+- **verify:** ไม่ได้แก้ src/tests (เพิ่มแค่ shell script) ผลล่าสุด (02:13) คือ pytest ผ่าน, M1 PASS, M2–M4 FAIL
+- **Codex:** ยังติด usage limit ถึง 02:32 จึงยังไม่ได้ขอความเห็นที่สอง
+- **งานถัดไป:** อ่านผล noise floor แล้วบันทึกลง Curriculum_Plan ส่วน 5 จากนั้นรัน Codex วิเคราะห์อย่างเดียว
+  (`worklog/codex_task_s2_fgu_analysis.md` + เพิ่มผล control dmg0 และ noise floor ลงไปก่อน)
+  - noise floor สูง (S1 เทียบตัวเอง FGU ≥10%) → ทางแก้คือ anchor ไปที่ S1 (KL/BC บนแรงผลักที่กู้ได้) หรือเทรน S2 จาก S1 แบบ freeze/residual
+  - noise floor ต่ำ (≤5%) → env ของ S2 ทำให้ทักษะหาย ลองขยายช่วงกู้ได้เป็น U(0, 0.12) ให้ตรงกับ S1 (สมมติฐาน ค)
