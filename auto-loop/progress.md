@@ -215,3 +215,22 @@
 - **งานถัดไป:** อ่าน s2_eval*.json ของ `s2_dmg10000_lr3e-5` แล้วบันทึกลง Curriculum_Plan ส่วน 5
   ถ้าผ่าน → m2_summary.json แล้วแก้ตัวเลข S2 ในเอกสาร M3 แล้วเขียน m3_compute.json
   ถ้าไม่ผ่าน (ครั้งที่ 3) → ขอ Codex วิเคราะห์อย่างเดียว (ส่ง FGU/รอด ทั้ง 3 run + สิ่งที่ลองไปแล้ว) แล้วลอง U(0, 0.12) หรือ DAMAGE_W 3000
+
+### รอบ 2026-10-08 22:05
+- **job ที่จบ:** `20261008-190041-s2lr3e5` ใช้ 3:03 ชม. (exit 0, เทรน ~47 นาทีต่อ seed)
+  ผล update 200: รอดกลุ่มกู้ได้ 87.5 / 33.3 / 75.0% (S1 87.5 / 95.8 / 95.8%), FGU 9.5 / 65.2 / 23.9%,
+  damage กลุ่มกู้ไม่ได้ < S1 และ < ปล่อยตัวทุก seed → **M2 ไม่ผ่าน (ครั้งที่ 3)** trend 50/100/150 FGU 4.3–47.8% แกว่งเหมือนเดิม
+  บันทึกตารางลง Curriculum_Plan ส่วน 5 แล้ว สรุปว่า LR ต่ำลงไม่ช่วย
+- **ทำอะไร (ทำเอง):** เขียน `scripts/run_stage2_control.sh` เป็น control ที่ใช้ S2 recipe เดิมทุกอย่าง (lr 1e-4) แต่ **DAMAGE_W=0** (tag `s2_dmg0`)
+  แล้ว eval 200 + trend 50/100/150 เพื่อแยกว่า FGU มาจาก damage reward หรือเป็นแค่ drift จากการเทรน PPO ต่อ / push mix
+  (ถ้า control ก็มี FGU 10–30% → ต้นเหตุไม่ใช่ damage ทางแก้ควรเป็น anchor ไปที่ S1 (KL/BC บนแรงผลักที่กู้ได้) หรือขยายช่วงกู้ได้
+  ถ้า control FGU ต่ำ → ต้นเหตุคือ damage term ให้ลอง DAMAGE_W 3000)
+- **ขอความเห็นที่สองจาก Codex (ข้อ 8):** เขียน prompt ไว้ที่ `worklog/codex_task_s2_fgu_analysis.md` (วิเคราะห์อย่างเดียว)
+  **แต่ Codex ติด usage limit ใช้ได้อีกทีหลัง 2026-10-09 02:32** จึงยังไม่ได้คำตอบ
+  ตรวจเองแล้ว: env3d.py:574/639 การหมดเวลานับเป็น terminated (ไม่ bootstrap) และ obs มี `remaining` จึงสอดคล้องกัน ไม่พบ bug ชัด
+- **verify:** ไม่ได้รัน (เพิ่มแค่ shell script ไม่ได้แก้ src/tests) ผลล่าสุดคือ pytest ผ่าน, M1 PASS, M2–M4 FAIL
+- **job ที่สั่ง:** `20261008-220533-s2ctrl` = `bash scripts/run_stage2_control.sh 63001 63002 63003`
+  ผลออกที่ `results/stage2/seed_*/push_0.08_hard0.5_posture1.0_s2_dmg0/` คาดว่าใช้ ~2.5–3 ชม.
+- **งานถัดไป:** อ่าน s2_eval*.json ของ `s2_dmg0` แล้วบันทึกลง Curriculum_Plan ส่วน 5 (เทียบ FGU กับ 3 run ก่อนหน้า)
+  ถ้าเวลาเลย 02:32 แล้ว ให้รัน Codex ใหม่ด้วย `bash auto-loop/tools/codex.sh "Read the file worklog/codex_task_s2_fgu_analysis.md ..."`
+  (เพิ่มผล control ลงในไฟล์ prompt ก่อน) แล้วเลือกทางแก้ตามผล control ข้างบน
