@@ -59,7 +59,8 @@ pwsh -File auto-loop/run-loop.ps1
 - ตัวที่ 5 ชม. ≥ 90% หรือสัปดาห์ ≥ 95% ใช้ไม่ได้ (ปรับด้วย env `QUOTA_LIMIT_5H`, `QUOTA_LIMIT_WEEK`) ถ้าใช้ไม่ได้ทั้งคู่ ลูปจะรอ
 - ตัวนำได้ prompt เดียวกัน (`PROMPT.md`) และมีหัวข้อ "โควตาและบทบาทรอบนี้" ต่อท้าย
   Claude เรียก Codex ด้วย `codex.sh` ส่วน Codex เรียก Claude ด้วย `claude.ps1 -TaskFile` ถ้าตัวช่วยใกล้เต็ม จะตอบ `QUOTA:` และไม่ทำงาน
-- ค่าสด: Codex ถามผ่าน `codex app-server` (ไม่เสีย token), Claude ถามด้วย haiku 1 ครั้ง (~$0.0006) cache ไว้ที่ `.loop/quota-cache.json`
+- ค่าสด (ไม่เสีย token): Codex ถามผ่าน `codex app-server`, Claude ผ่าน `claude -p "/usage"` ซึ่งเป็นตัวเลขชุดเดียวกับหน้า usage ของแอป
+  (ถ้าใช้ไม่ได้จะถามด้วย haiku ~$0.0006) cache 1 นาทีที่ `.loop/quota-cache.json`
 - ดูแผนตอนนี้: `pwsh -NoProfile -File auto-loop/tools/quota.ps1` ส่วนตัวนำแต่ละรอบดูได้ในคอลัมน์ "ตัวนำ" ของ `reports/loop-report.md`
 - งานที่ Codex สั่ง Claude บันทึกไว้ที่ `reports/claude-helper.md`
 

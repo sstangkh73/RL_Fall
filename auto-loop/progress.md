@@ -491,3 +491,22 @@
   evaluatorเดิมไม่เก็บtime-to-fall ห้ามอ้างsoft-early-fallโดยไม่มีdiagnosticเพิ่มเติม
   ผ่านเกณฑ์GOALทุกseedที่final200จริง→เขียนm2_summary.jsonชี้runชุดนี้ครบ3แล้วทำM3; ไม่ผ่าน→Claudeวิเคราะห์ก่อนเลือกการทดลองใหม่
   ห้ามใช้checkpointtrendที่ดีแทนendpoint; แม้ผ่านmarginแคบต้องรายงานข้อจำกัดprecision/หลายrecipeและยังไม่อ้างกลยุทธ์ควรกู้/ควรล้มสำเร็จ
+
+### รอบ 2026-10-09 20:58
+- **ตัวนำ:** Codex; ทำเองทั้งหมดรอบนี้ ไม่เรียก Claude เพราะมีเพียงการตรวจสถานะและยังไม่มีผลใหม่ให้รีวิว
+- **งานที่เลือก (M2):** ตรวจงาน damage incentive ×2 ที่กำลังรัน แล้วให้ลูปรอผล; ใช้ skill verification-before-completion
+  อ่าน GOAL/progress/goal-status/last-verify/git log และ jobs.ps1; ไม่มี job ใหม่ที่เพิ่งจบหลังรอบ20:22
+- **job ที่สั่ง:** ไม่มีใหม่; job เดิม `20261009-202136-s2dmg20k` คำสั่ง `bash scripts/run_stage2_damage20k.sh`
+  ยัง running ใช้เวลาแล้วประมาณ36นาที; ประมาณการเดิมรวม4–4.5ชั่วโมง (ยังไม่ใช่เวลาจบจริง)
+  ตรวจ WSL พบ learner PID686 เพียงหนึ่งตัวกับ8workers กำลังเทรน63001: damage_weight20000/anchor_coef1/objective/bodyv1_0
+  และ initial/teacher ชี้ M1 pinned 20261008T100414; updates.csv ล่าสุด global_update123 มี124แถวรวมupdate0
+  checkpoint100มีอยู่ ยังไม่มี s2_eval; seed63002/63003ยังไม่เริ่ม เป็นไปตามลำดับใน job เดียว
+- **job ที่จบ:** ไม่มีใหม่; jobs.md ยังไม่มีเวลาจบของs2dmg20k จึงยังไม่บันทึกตัวเลขผลลง Curriculum_Plan หรือสร้างmilestone
+- **ผล verify:** รอบนี้ไม่มีการแก้โค้ดและไม่ได้รัน pytest ซ้ำ; อ่าน last-verify ของลูปเวลา2026-10-09 20:56:49:
+  68 testsผ่าน/tests exit0, M1PASS, M2–M4FAIL/goal exit1 เพราะไฟล์milestoneและรายงานยังไม่มี (เป็นผลตรวจเดิมของลูป)
+- **ปัญหา/เหตุผลตัดสินใจ:** ต้องรอ endpoint200ครบ3seedsก่อนประเมินM2 ไม่เปิดtrainingซ้อน ไม่ใช้checkpointระหว่างทางแทนendpoint
+  stale job s2ctrl ของ8ต.ค.ยังแสดงในjobs.ps1 แต่ตรวจprocessปัจจุบันไม่มีlearnerเก่านี้
+  working tree มีการแก้ README/tools quota+credits/reports/worklog อยู่ก่อนรอบนี้ ไม่แตะหรือย้อนการแก้เหล่านั้น
+- **งานถัดไป:** สร้างไฟล์ว่าง auto-loop/WAIT_FOR_JOBS แล้วจบรอบทันที ให้ลูปรอjobจบ
+  รอบถัดไปอ่านfinal200/trendครบ3seeds ตรวจprovenance/effectiveconfigตามรอบ20:22 บันทึกทุกผลและเวลาจริงจากjobs.mdลงCurriculum_Plan
+  ผ่านทุกseedจริงจึงเขียนm2_summary; ถ้ายังไม่ผ่านให้Claudeวิเคราะห์อย่างเดียวก่อนเลือกการทดลองถัดไป; M3รอS2gateจริง

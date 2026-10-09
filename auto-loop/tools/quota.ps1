@@ -7,9 +7,11 @@
 
   แหล่งข้อมูลสด:
     Codex:  codex app-server → account/rateLimits/read  (ไม่เสีย token)
-    Claude: claude -p --model haiku 1 turn ไม่มี tool แล้วอ่าน rate_limit_event (~$0.0006 ต่อครั้ง)
-            โควตานี้ใช้ร่วมกับ session แบบ interactive จึงต้องถามสด ไม่ใช่อ่านจาก log ของลูป
-  ผลถูก cache ไว้ที่ auto-loop/.loop/quota-cache.json (Claude 10 นาที, Codex 1 นาที) ถ้าถามสดไม่ได้จะใช้ค่าจาก log
+    Claude: claude -p "/usage" (คำสั่ง local ของ Claude Code ข้อมูลชุดเดียวกับหน้า usage ของแอป ไม่เสีย token)
+            /usage บอกเวลารีเซ็ตแค่ระดับชั่วโมง จึงเติมเวลาที่แม่นจาก rate_limit_event ล่าสุดถ้าเป็น window เดียวกัน
+            ถ้า /usage ใช้ไม่ได้ → claude -p --model haiku 1 turn แล้วอ่าน rate_limit_event (~$0.0006 ต่อครั้ง)
+            โควตานี้ใช้ร่วมกับ session แบบ interactive และ claude.ai จึงต้องถามสด ไม่ใช่อ่านจาก log ของลูป
+  ผลถูก cache ไว้ที่ auto-loop/.loop/quota-cache.json 1 นาที ถ้าถามสดไม่ได้จะใช้ค่าจาก log
 
   วิธีเลือกตัวนำ (คะแนนสูงกว่าเป็นตัวนำ):
     คะแนน = ความเร่งด่วน 5 ชม. × ตัวคูณรายสัปดาห์
@@ -27,7 +29,7 @@ $QuotaLimit5h = if ($env:QUOTA_LIMIT_5H) { [double]$env:QUOTA_LIMIT_5H } else { 
 $QuotaLimitWeek = if ($env:QUOTA_LIMIT_WEEK) { [double]$env:QUOTA_LIMIT_WEEK } else { 95 }
 $QuotaLoopDir = Split-Path $PSScriptRoot -Parent
 $QuotaCache = Join-Path $QuotaLoopDir '.loop/quota-cache.json'
-$QuotaMaxAge = @{ claude = 600; codex = 60 }
+$QuotaMaxAge = @{ claude = 60; codex = 60 }
 
 function Get-NowEpoch { [DateTimeOffset]::Now.ToUnixTimeSeconds() }
 
@@ -106,8 +108,69 @@ function ConvertFrom-ClaudeRateLimit($info, $source, $asOf) {
     return $q
 }
 
+# "Oct 10, 12am" / "Oct 12, 11:30pm" / "3pm" (วันนี้) → epoch (เวลาเครื่อง) ถ้าได้เวลาที่ผ่านไปแล้วให้เลื่อนไปข้างหน้า
+function ConvertFrom-UsageTime([string]$text) {
+    $t = ($text.Trim() -replace '\s+', ' ').ToUpperInvariant()
+    $ci = [Globalization.CultureInfo]::InvariantCulture
+    $now = [DateTime]::Now
+    foreach ($fmt in 'MMM d, htt', 'MMM d, h:mmtt', 'MMM d, h tt', 'MMM d, h:mm tt') {
+        $d = [DateTime]::MinValue
+        if ([DateTime]::TryParseExact($t, $fmt, $ci, 'AllowWhiteSpaces', [ref]$d)) {
+            $d = [DateTime]::new($now.Year, $d.Month, $d.Day, $d.Hour, $d.Minute, 0)
+            if ($d -lt $now.AddDays(-1)) { $d = $d.AddYears(1) }
+            return ([DateTimeOffset]$d).ToUnixTimeSeconds()
+        }
+    }
+    foreach ($fmt in 'htt', 'h:mmtt', 'h tt', 'h:mm tt') {
+        $d = [DateTime]::MinValue
+        if ([DateTime]::TryParseExact($t, $fmt, $ci, 'AllowWhiteSpaces', [ref]$d)) {
+            $d = $now.Date.AddHours($d.Hour).AddMinutes($d.Minute)
+            if ($d -lt $now.AddMinutes(-60)) { $d = $d.AddDays(1) }
+            return ([DateTimeOffset]$d).ToUnixTimeSeconds()
+        }
+    }
+    return $null
+}
+
+# เวลารีเซ็ตจาก /usage ปัดเป็นชั่วโมง ถ้ามีเวลาแม่นจาก rate_limit_event ที่ห่างไม่เกิน 1 ชม. (window เดียวกัน) ให้ใช้ตัวนั้น
+function Get-ExactReset([long]$coarse, [long[]]$candidates) {
+    foreach ($c in $candidates) { if ($c -and [math]::Abs($c - $coarse) -lt 3600) { return $c } }
+    return $coarse
+}
+
+function Get-ClaudeQuotaUsage {
+    $out = & claude -p '/usage' --output-format json --no-session-persistence 2>$null | Out-String
+    $text = try { ($out | ConvertFrom-Json).result } catch { $null }
+    if (-not $text) { return $null }
+    $m5 = [regex]::Match($text, 'Current session:\s*(\d+(?:\.\d+)?)% used\s*·\s*resets\s*([^(
+]+)')
+    $mW = [regex]::Match($text, 'Current week \(all models\):\s*(\d+(?:\.\d+)?)% used\s*·\s*resets\s*([^(
+]+)')
+    if (-not $m5.Success -or -not $mW.Success) { return $null }
+    $r5 = ConvertFrom-UsageTime $m5.Groups[2].Value
+    $rW = ConvertFrom-UsageTime $mW.Groups[2].Value
+    if (-not $r5 -or -not $rW) { return $null }
+    # เวลารีเซ็ตแม่นๆ จาก cache / log
+    $known = @((Read-QuotaCache).claude, (Get-ClaudeQuotaFromLog)) | Where-Object { $_ }
+    $r5 = Get-ExactReset $r5 @($known | ForEach-Object { $_.Reset5 })
+    $rW = Get-ExactReset $rW @($known | ForEach-Object { $_.ResetW })
+    $usedW = [double]$mW.Groups[1].Value
+    # ถ้ามีเพดานรายสัปดาห์แยกตามรุ่น (เช่น Opus only) ใช้ตัวที่สูงสุดเพื่อไม่ให้ชนเพดาน
+    $notes = @()
+    foreach ($x in [regex]::Matches($text, 'Current week \(([^)]+)\):\s*(\d+(?:\.\d+)?)% used')) {
+        if ($x.Groups[1].Value -eq 'all models') { continue }
+        $notes += '{0} {1}%' -f $x.Groups[1].Value, $x.Groups[2].Value
+        $usedW = [math]::Max($usedW, [double]$x.Groups[2].Value)
+    }
+    $q = New-Quota 'claude' 'live' (Get-NowEpoch) $m5.Groups[1].Value $r5 18000 $usedW $rW 604800
+    if ($notes) { $q.Plan = 'สัปดาห์แยกรุ่น: ' + ($notes -join ', ') }
+    return $q
+}
+
 function Get-ClaudeQuotaLive {
     if (-not (Get-Command claude -ErrorAction SilentlyContinue)) { return $null }
+    $q = try { Get-ClaudeQuotaUsage } catch { $null }
+    if ($q) { return $q }
     $lines = 'ตอบคำเดียว: ok' | & claude -p --model haiku --max-turns 1 --output-format stream-json --verbose `
         --tools '' --strict-mcp-config --setting-sources '' 2>$null
     $hit = @($lines | Where-Object { $_ -match '"type":"rate_limit_event"' }) | Select-Object -Last 1
