@@ -48,8 +48,20 @@ pwsh -File auto-loop/run-loop.ps1
   และสถานะ job ใช้ `pwsh -NoProfile -File auto-loop/tools/jobs.ps1`
 - **ดูเครดิต Claude/Codex:** `pwsh -NoProfile -File auto-loop/tools/credits.ps1` แสดงหลอดโควตา 5 ชม. และสัปดาห์ พร้อมเวลารีเซ็ต
   เปิดหน้าต่างแยกที่อัปเดตทุก 60 วิ: `Start-Process pwsh '-NoProfile -File C:\RL_Fall\auto-loop\tools\credits.ps1 -Watch'`
-  (ค่า ณ การเรียกครั้งล่าสุดจาก log ไม่เรียก API) █ = ใช้ไป, ┃ = เวลาที่ผ่านไปของ window
+  (ค่าสดจาก quota.ps1 พร้อมบอกตัวนำรอบหน้า) █ = ใช้ไป, ┃ = เวลาที่ผ่านไปของ window
 - **ย้อนกลับ:** ลูป commit ทุกรอบลง branch `loop/research` ให้ใช้ `git log` หา commit ที่ต้องการ แล้ว `git reset --hard <commit>`
+
+## บริหารโควตา Claude / Codex
+
+ก่อนเริ่มทุกรอบ ลูปเรียก `tools/quota.ps1` เพื่ออ่านโควตาสดของทั้งสองตัว แล้วเลือกตัวนำ (ทำงานที่กิน token มาก) กับตัวช่วย (รีวิว / ความเห็นที่สอง)
+- คะแนน = (% ที่เหลือใน 5 ชม. / ชั่วโมงที่เหลือถึงรีเซ็ต) × ตัวคูณรายสัปดาห์ ถ้าโควตาใกล้รีเซ็ตแต่ยังเหลือเยอะ ให้ใช้ก่อน ไม่งั้นเสียเปล่า
+  ถ้าใช้รายสัปดาห์เร็วกว่าเวลาจะโดนลดคะแนนแรง (กำลังสอง)
+- ตัวที่ 5 ชม. ≥ 90% หรือสัปดาห์ ≥ 95% ใช้ไม่ได้ (ปรับด้วย env `QUOTA_LIMIT_5H`, `QUOTA_LIMIT_WEEK`) ถ้าใช้ไม่ได้ทั้งคู่ ลูปจะรอ
+- ตัวนำได้ prompt เดียวกัน (`PROMPT.md`) และมีหัวข้อ "โควตาและบทบาทรอบนี้" ต่อท้าย
+  Claude เรียก Codex ด้วย `codex.sh` ส่วน Codex เรียก Claude ด้วย `claude.ps1 -TaskFile` ถ้าตัวช่วยใกล้เต็ม จะตอบ `QUOTA:` และไม่ทำงาน
+- ค่าสด: Codex ถามผ่าน `codex app-server` (ไม่เสีย token), Claude ถามด้วย haiku 1 ครั้ง (~$0.0006) cache ไว้ที่ `.loop/quota-cache.json`
+- ดูแผนตอนนี้: `pwsh -NoProfile -File auto-loop/tools/quota.ps1` ส่วนตัวนำแต่ละรอบดูได้ในคอลัมน์ "ตัวนำ" ของ `reports/loop-report.md`
+- งานที่ Codex สั่ง Claude บันทึกไว้ที่ `reports/claude-helper.md`
 
 ## สิทธิ์ของ Claude ในลูป
 

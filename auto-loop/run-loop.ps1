@@ -6,6 +6,8 @@
   หยุด:    สร้างไฟล์ auto-loop/STOP (หยุดก่อนรอบถัดไปหรือระหว่างรอ job) หรือกด Ctrl+C
 
   หลักการ: ลูปนี้ (ไม่ใช่ Claude) ตัดสินว่าเสร็จหรือยัง โดยดูจาก verify.ps1 เท่านั้น
+  ตัวนำแต่ละรอบ (Claude หรือ Codex) เลือกจากโควตาสดผ่าน tools/quota.ps1 อีกตัวเป็นตัวช่วย (codex.sh / claude.ps1)
+  ถ้าโควตาใกล้เต็มทั้งคู่ ลูปจะรอจนตัวแรกกลับมาใช้ได้
   Claude ทำงานที่ root ของโปรเจกต์ และลูป commit ทุกรอบลง branch $Branch
   งานยาว (เทรนใน WSL) ให้รันผ่าน tools/wsl-job.ps1 แล้วสร้างไฟล์ auto-loop/WAIT_FOR_JOBS
   ลูปจะรอจน job ทั้งหมดจบก่อนเรียก Claude รอบถัดไป (ไม่เปลือง token ระหว่างรอ)
@@ -35,6 +37,8 @@ $OutputEncoding = [Text.UTF8Encoding]::new($false)
 $LoopDir = $PSScriptRoot
 $Root = (git -C $LoopDir rev-parse --show-toplevel).Trim()
 Set-Location $Root
+# Get-QuotaPlan / Show-QuotaPlan / Format-QuotaPrompt: เลือกตัวนำแต่ละรอบจากโควตาสดของ Claude และ Codex
+. (Join-Path $LoopDir 'tools/quota.ps1')
 
 # เครื่องมือที่ Claude ใช้ได้โดยไม่ต้องขออนุญาต: แก้ไฟล์, ค้นเว็บ, WSL (เทรน/วิเคราะห์),
 # job runner, Codex, python และ git แบบอ่าน
@@ -45,6 +49,7 @@ $AllowedTools = @(
     'Bash(pwsh -NoProfile -File auto-loop/tools/jobs.ps1:*)',
     'Bash(pwsh -NoProfile -File auto-loop/verify.ps1)',
     'Bash(bash auto-loop/tools/codex.sh:*)',
+    'Bash(pwsh -NoProfile -File auto-loop/tools/quota.ps1:*)',
     'Bash(python:*)', 'Bash(nvidia-smi:*)',
     'Bash(git diff:*)', 'Bash(git status:*)', 'Bash(git log:*)', 'Bash(git show:*)'
 )
@@ -199,13 +204,20 @@ function Wait-Jobs {
 $loopStart = Get-Date
 $deadline = if ($MaxHours -gt 0) { $loopStart.AddHours($MaxHours) } else { [datetime]::MaxValue }
 if (-not (Test-Path $ReportCsv)) {
-    'iteration,start,claude_s,claude_exit,wait_jobs_s,verify_s,verify_exit,iteration_s,total_elapsed_s,commit' |
+    'iteration,start,claude_s,claude_exit,wait_jobs_s,verify_s,verify_exit,iteration_s,total_elapsed_s,commit,lead,quota_wait_s' |
         Set-Content $ReportCsv -Encoding utf8
+} else {
+    # ไฟล์เก่าก่อนมีการเลือกตัวนำ: เติมชื่อคอลัมน์ใหม่ที่หัวตาราง (แถวเก่าเว้นว่าง)
+    $csv = @(Get-Content $ReportCsv -Encoding utf8)
+    if ($csv.Count -and $csv[0] -notmatch ',lead') {
+        $csv[0] += ',lead,quota_wait_s'
+        $csv | Set-Content $ReportCsv -Encoding utf8
+    }
 }
 Report "`n## Loop เริ่ม $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  branch $Branch  HEAD $((git rev-parse --short HEAD).Trim())"
 Report "MaxIterations=$(if ($MaxIterations) { $MaxIterations } else { 'ไม่จำกัด' })  MaxHours=$(if ($MaxHours) { $MaxHours } else { 'ไม่จำกัด' })`n"
-Report '| รอบ | เริ่ม | Claude | turns | ค่าใช้จ่าย Claude | รอ job | verify | รวมรอบ | เวลาสะสม | ผล verify | commit |'
-Report '|---:|---|---:|---:|---:|---:|---:|---:|---:|---|---|'
+Report '| รอบ | เริ่ม | ตัวนำ | เวลาตัวนำ | turns | ค่าใช้จ่าย Claude | รอ job | verify | รวมรอบ | เวลาสะสม | ผล verify | commit |'
+Report '|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---|---|'
 
 $exitCode = 1
 $endReason = 'ครบจำนวนรอบแต่ verify ยังไม่ผ่าน'
@@ -222,16 +234,47 @@ try {
         $script:LiveLog = Join-Path $dotLoop ('iter-{0:D3}.log' -f $i)
         $script:RawLog = Join-Path $dotLoop ('iter-{0:D3}.jsonl' -f $i)
         $script:LastResult = $null
+
+        # เลือกตัวนำจากโควตาสด ถ้าใช้ไม่ได้ทั้งคู่ให้รอจนตัวแรกกลับมาใช้ได้ (สร้าง STOP เพื่อหยุดรอ)
+        $quotaSw = [Diagnostics.Stopwatch]::StartNew()
+        while ($true) {
+            $plan = Get-QuotaPlan
+            Show-QuotaPlan $plan
+            if ($plan.Lead -or (Test-Path $StopFile)) { break }
+            $until = [DateTimeOffset]::FromUnixTimeSeconds([long]$plan.WaitUntil).ToLocalTime().AddMinutes(1)
+            while ([DateTimeOffset]::Now -lt $until -and -not (Test-Path $StopFile)) { Start-Sleep -Seconds $WaitPollSeconds }
+        }
+        $quotaSw.Stop()
+        if (-not $plan.Lead) { $endReason = 'พบไฟล์ STOP (ระหว่างรอโควตา)'; $exitCode = 2; break }
+        $lead = $plan.Lead
+        Out-Live "[โควตา] ตัวนำ $lead  ตัวช่วย $(if ($plan.Helper) { $plan.Helper } else { 'ไม่มี' })  — $($plan.Why)" 'Yellow'
+        $prompt = (Get-Content (Join-Path $LoopDir 'PROMPT.md') -Raw) + (Format-QuotaPrompt $plan)
+
+        # $claudeExit / $claudeTime คือผลของตัวนำรอบนี้ (Claude หรือ Codex)
         $sw = [Diagnostics.Stopwatch]::StartNew()
-        Get-Content (Join-Path $LoopDir 'PROMPT.md') -Raw |
-            claude -p --output-format stream-json --verbose --permission-mode acceptEdits `
-                --max-turns $MaxTurnsPerIteration --allowedTools @AllowedTools 2>&1 |
-            ForEach-Object { Show-StreamEvent "$_" }
-        $claudeExit = $LASTEXITCODE
-        $turns = if ($script:LastResult) { $script:LastResult.num_turns } else { '?' }
-        $cost = if ($script:LastResult) { '${0:N2}' -f $script:LastResult.total_cost_usd } else { '?' }
+        if ($lead -eq 'claude') {
+            $prompt |
+                claude -p --output-format stream-json --verbose --permission-mode acceptEdits `
+                    --max-turns $MaxTurnsPerIteration --allowedTools @AllowedTools 2>&1 |
+                ForEach-Object { Show-StreamEvent "$_" }
+            $claudeExit = $LASTEXITCODE
+            $turns = if ($script:LastResult) { $script:LastResult.num_turns } else { '?' }
+            $cost = if ($script:LastResult) { '${0:N2}' -f $script:LastResult.total_cost_usd } else { '?' }
+        } else {
+            # Codex เป็นตัวนำ: prompt เดียวกัน ส่งทาง stdin, ไม่มี sandbox แบบเดียวกับ codex.sh
+            $last = Join-Path $dotLoop ('iter-{0:D3}.codex-last.md' -f $i)
+            Remove-Item $last -ErrorAction SilentlyContinue
+            $prompt |
+                codex exec --sandbox danger-full-access -C $Root --skip-git-repo-check --output-last-message $last - 2>&1 |
+                ForEach-Object { Out-Live "$_" 'Gray' }
+            $claudeExit = $LASTEXITCODE
+            $turns = '-'; $cost = '-'
+            $reply = if (Test-Path $last) { Get-Content $last -Raw -Encoding utf8 } else { '(ไม่มีข้อความสุดท้าย)' }
+            Out-Live "`n=== Codex จบรอบ (exit $claudeExit, $(Fmt $sw.Elapsed))`n$reply" 'Green'
+        }
         $sw.Stop()
         $claudeTime = $sw.Elapsed
+        $leadLabel = if ($quotaSw.Elapsed.TotalMinutes -ge 1) { "$lead (รอโควตา $(Fmt $quotaSw.Elapsed))" } else { $lead }
 
         foreach ($f in $Protected) {
             if (-not (Test-Path $f) -or (Get-FileHash $f).Hash -ne $Hashes[$f]) {
@@ -251,11 +294,11 @@ try {
         $iterTime = (Get-Date) - $iterStart
         $total = (Get-Date) - $loopStart
         $result = if ($v.Code -eq 0) { 'ผ่าน' } else { 'ไม่ผ่าน' }
-        Report ("| {0} | {1:yyyy-MM-dd HH:mm} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} |" -f
-            $i, $iterStart, (Fmt $claudeTime), $turns, $cost, (Fmt $waitTime), (Fmt $v.Time), (Fmt $iterTime), (Fmt $total), $result, $commit)
-        Add-Content $ReportCsv -Encoding utf8 -Value ('{0},{1:s},{2:F0},{3},{4:F0},{5:F0},{6},{7:F0},{8:F0},{9}' -f
+        Report ("| {0} | {1:yyyy-MM-dd HH:mm} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} |" -f
+            $i, $iterStart, $leadLabel, (Fmt $claudeTime), $turns, $cost, (Fmt $waitTime), (Fmt $v.Time), (Fmt $iterTime), (Fmt $total), $result, $commit)
+        Add-Content $ReportCsv -Encoding utf8 -Value ('{0},{1:s},{2:F0},{3},{4:F0},{5:F0},{6},{7:F0},{8:F0},{9},{10},{11:F0}' -f
             $i, $iterStart, $claudeTime.TotalSeconds, $claudeExit, $waitTime.TotalSeconds, $v.Time.TotalSeconds,
-            $v.Code, $iterTime.TotalSeconds, $total.TotalSeconds, $commit)
+            $v.Code, $iterTime.TotalSeconds, $total.TotalSeconds, $commit, $lead, $quotaSw.Elapsed.TotalSeconds)
         Write-Host "verify exit=$($v.Code)   รอบนี้ $(Fmt $iterTime)   สะสม $(Fmt $total)"
 
         if ($v.Code -eq 0) { $endReason = "สำเร็จ — verify ผ่านในรอบที่ $i"; $exitCode = 0; break }

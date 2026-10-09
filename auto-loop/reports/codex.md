@@ -245,3 +245,35 @@ Read the file worklog/codex_task_s2_damage_analysis.md and follow it exactly. An
 No files were changed.
 
 log เต็ม: `auto-loop/.loop/codex/20261009-105715.log`
+
+## 2026-10-09 12:40:08  (exit 0, 55s)
+
+**Claude สั่ง:**
+
+````text
+Review only (do NOT edit any files). In C:/RL_Fall, look at 'git diff scripts/lanta/s2_pilot.sbatch'. Goal: the sbatch's TAG must equal the TAG that scripts/run_stage2_pilot.sh builds internally (read that script), for both the default call and ANCHOR=1.0 ANCHOR_EPOCHS=1 RECOVERABLE_MAX=0.12, so that scripts/run_stage2_eval.sh (which reads TAG and RECOVERABLE_MAX from env) finds the run directory the pilot wrote. Also check set -u safety. Reply in under 150 words: OK or a list of concrete bugs with line numbers.
+````
+
+**Codex รัน:**
+
+````text
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "Get-Content -LiteralPath 'C:/Users/sstan/.codex/skills/verification-before-completion/SKILL.md'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command 'git diff -- scripts/lanta/s2_pilot.sbatch' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command '$paths = @('"'scripts/lanta/s2_pilot.sbatch','scripts/run_stage2_pilot.sh','scripts/run_stage2_eval.sh'); foreach ("'$p in $paths) { Write-Output ('"'FILE ' + "'$p); $n = 0; Get-Content -LiteralPath $p | ForEach-Object { $n++; '"'{0,4}: {1}' -f "'$n, $_ } }' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "rg --files -g AGENTS.md -g '"'!results/**'"' -g '"'!logs/**'"'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "Get-Command bash -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source; Test-Path -LiteralPath 'C:/Program Files/Git/bin/bash.exe'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "@'
+````
+
+**Codex ตอบ:**
+
+OK. TAG matches the pilot in both cases:
+
+- Default: `s2_dmg10000`, with recoverable max `0.08`.
+- Specified overrides: `s2_dmg10000_anc1.0_ae1`, with recoverable max `0.12`.
+
+`TAG` is exported; `RECOVERABLE_MAX` supplied through sbatch’s environment reaches both scripts. Eval therefore targets the pilot’s directory.
+
+Lines 24–27 are `set -u` safe: guarded conditions prevent expanding unset variables. Bash syntax checks and isolated TAG checks passed. No files edited.
+
+log เต็ม: `auto-loop/.loop/codex/20261009-123912.log`

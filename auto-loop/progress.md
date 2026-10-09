@@ -343,3 +343,15 @@
   - ผ่านครบ 3 seeds ที่ update 200 → เขียน `auto-loop/milestones/m2_summary.json` (ชี้ไปที่ run นี้ทั้ง 3 seeds) แล้วแก้ตัวเลข S2 ใน M3 + เขียน m3_compute.json
   - ไม่ผ่าน → ทำตามลำดับของ Codex: ย้าย KL เข้าไปใน PPO loss (ส่งให้ Codex เขียนพร้อม test และแก้ raw obs capture ไปด้วย)
     หรือ anchor เฉพาะช่วงก่อนผลัก + K step แรก ห้ามเลือก checkpoint ที่ผลดีเอง ต้องใช้ update 200 ทุก seed
+
+### รอบ 2026-10-09 12:40
+- **ตัวนำ:** Claude (ตัวช่วย: Codex)
+- **job ที่จบ:** ไม่มี `20261009-105614-s2anc_wide` ยังรันอยู่ (1:42 ชม. ตอนเริ่มรอบ, 63001/63002 เทรนเสร็จแล้ว กำลังเทรน 63003 แล้วจะต่อด้วย eval + trend) คาดว่าเหลืออีก ~1.3 ชม.
+- **ทำอะไร (Claude ทำเอง):** งาน M3 ระหว่างรอ แก้ `scripts/lanta/s2_pilot.sbatch` ให้สร้าง TAG ตามกฎเดียวกับ `run_stage2_pilot.sh` (เพิ่ม `_anc<ANCHOR>`/`_ae<ANCHOR_EPOCHS>`)
+  เพื่อให้รัน recipe ที่มี anchor บน LANTA ได้ และ eval หา run ที่เทรนไว้เจอ (RECOVERABLE_MAX ส่งต่อทาง env) และเพิ่มหมายเหตุในส่วน 6 ของ `planning/LANTA_Compute_Estimate_TH.md`
+  ตรวจด้วย `bash -n` ผ่านแล้ว **Codex รีวิว diff แล้วตอบ OK** (TAG ตรงกันทั้ง default และ anc1.0_ae1 + 0.12 และใช้กับ set -u ได้) log อยู่ที่ `auto-loop/.loop/codex/20261009-123912.log`
+- **verify:** ไม่ได้รัน เพราะแก้แค่ sbatch/เอกสาร ไม่แตะ src/tests และไม่อยากแย่ง CPU กับ job ผลล่าสุด (12:37) คือ pytest ผ่าน, M1 PASS, M2–M4 FAIL
+- **job ที่สั่ง:** ไม่มี (สร้าง `auto-loop/WAIT_FOR_JOBS` ไว้แล้ว)
+- **งานถัดไป:** เหมือนรอบ 10:55 คืออ่าน s2_eval*.json ของ `push_0.12_..._anc1.0_ae1` (+ `s2_per_impulse.py`, `anchor_kl.py`) แล้วบันทึกลง Curriculum_Plan ส่วน 5 พร้อมเวลา job
+  - ผ่านครบ 3 seeds ที่ update 200 → เขียน m2_summary.json แล้วแก้ข้อ 2–5 ของ LANTA_Compute_Estimate (S2 = 200 updates = 3.3M) + เขียน m3_compute.json (ใส่ sbatch ทั้ง 3 ไฟล์)
+  - ไม่ผ่าน → ย้าย KL เข้าไปใน PPO loss + แก้ raw obs capture (`train.py:207`) ตามลำดับที่ Codex เสนอ

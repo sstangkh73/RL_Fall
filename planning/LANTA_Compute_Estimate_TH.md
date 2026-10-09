@@ -71,7 +71,7 @@
 |---|---|
 | `scripts/lanta/bench_throughput.sbatch` | วัด throughput ต่อ node (K runs พร้อมกัน) แล้วพิมพ์ผลรวม |
 | `scripts/lanta/s1_recipe.sbatch` | S1 recipe ครบทุกขั้น หลาย seed พร้อมกันบน 1 node (resubmit แล้ว resume ได้) |
-| `scripts/lanta/s2_pilot.sbatch` | S2 fine-tune + `s2_eval` หลาย seed พร้อมกัน |
+| `scripts/lanta/s2_pilot.sbatch` | S2 fine-tune + `s2_eval` หลาย seed พร้อมกัน (9 ต.ค.: รองรับ recipe ที่มี KL anchor แล้ว เช่น `--export=ALL,ANCHOR=1.0,ANCHOR_EPOCHS=1,RECOVERABLE_MAX=0.12`) |
 
 ก่อนรันต้องแก้ `-A <project-account>` ติดตั้ง venv ที่ `~/venvs/rl_fall` (หรือส่ง `PY=`) และตรวจชื่อ partition กับ time limit ของ LANTA ปัจจุบัน
 

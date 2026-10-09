@@ -5,16 +5,19 @@
   เปิดหน้าต่างแยก:
         Start-Process pwsh '-NoProfile -File C:\RL_Fall\auto-loop\tools\credits.ps1 -Watch'
 
-  อ่านจาก log อย่างเดียว ไม่เรียก API (ไม่เสียโควตา) ตัวเลขจึงเป็นค่า ณ การเรียกครั้งล่าสุด
-    Claude: rate_limit_event ล่าสุดใน auto-loop/.loop/iter-*.jsonl (stream-json ของ claude -p)
-    Codex:  rate_limits ล่าสุดใน ~/.codex/sessions/**/rollout-*.jsonl
+  ตัวเลขมาจาก quota.ps1 (ค่าสด: Codex ถามได้ทุกนาทีโดยไม่เสีย token, Claude ถามด้วย haiku ทุก 10 นาที ~$0.0006 ต่อครั้ง)
+  ถ้าถามสดไม่ได้จะใช้ค่าจาก log แล้วบอกว่าข้อมูลเก่ากี่นาที ใส่ -NoProbe เพื่ออ่านจาก cache/log อย่างเดียว
+  บรรทัดล่างสุดคือตัวนำที่ลูปจะเลือกถ้าเริ่มรอบใหม่ตอนนี้
   หลอด: █ = โควตาที่ใช้ไป, ┃ = เวลาที่ผ่านไปของ window (ถ้า █ เลย ┃ แปลว่าใช้เร็วกว่าเวลา)
   ค่า $ ของ Claude คือราคาเทียบ API (total_cost_usd) ไม่ใช่เงินที่ถูกเก็บจริงถ้าใช้ subscription
 #>
-param([switch]$Watch, [int]$Interval = 60, [int]$Width = 40)
+param([switch]$Watch, [int]$Interval = 60, [int]$Width = 40, [switch]$NoProbe)
 [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::InvariantCulture
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $LoopDir = Split-Path $PSScriptRoot -Parent
+# dot-source จะเขียนทับพารามิเตอร์ชื่อเดียวกัน ($NoProbe) จึงเก็บค่าไว้ก่อน
+$probeOff = [bool]$NoProbe
+. (Join-Path $PSScriptRoot 'quota.ps1')
 $script:Now = [DateTimeOffset]::Now
 
 function When([long]$epoch) { [DateTimeOffset]::FromUnixTimeSeconds($epoch).ToLocalTime() }
@@ -25,8 +28,8 @@ function Fmt-Left([DateTimeOffset]$t) {
     'อีก {0} ชม. {1} นาที' -f [int][math]::Floor($d.TotalHours), $d.Minutes
 }
 function Age([datetime]$t) {
-    $m = [int]($script:Now.LocalDateTime - $t).TotalMinutes
-    if ($m -lt 60) { "$m นาทีก่อน" } else { '{0:N1} ชม.ก่อน' -f ($m / 60) }
+    $m = [int]([DateTimeOffset]::Now.LocalDateTime - $t).TotalMinutes
+    if ($m -lt 1) { 'เมื่อกี้' } elseif ($m -lt 60) { "$m นาทีก่อน" } else { '{0:N1} ชม.ก่อน' -f ($m / 60) }
 }
 
 # หลอดหนึ่ง window: ชื่อ, % ที่ใช้, เวลารีเซ็ต (epoch), ความยาว window (วินาที)
@@ -56,21 +59,7 @@ function Show-Claude {
     Write-Host '━━ Claude ━━' -ForegroundColor Cyan
     $iterFiles = @(Get-ChildItem (Join-Path $LoopDir '.loop') -Filter 'iter-*.jsonl' -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending)
-    $rl = $null; $rlFile = $null
-    foreach ($f in $iterFiles) {
-        $line = Select-String -Path $f.FullName -Pattern '"type":"rate_limit_event"' | Select-Object -Last 1
-        if ($line) { $rl = ($line.Line | ConvertFrom-Json).rate_limit_info; $rlFile = $f; break }
-    }
-    if ($rl) {
-        Write-Host ('  ข้อมูลจาก {0} ({1})' -f $rlFile.Name, (Age $rlFile.LastWriteTime)) -ForegroundColor DarkGray
-        $w = $rl.unifiedWindows
-        if ($w.five_hour) { Show-Bar '5 ชม.' ($w.five_hour.utilization * 100) $w.five_hour.resetsAt 18000 }
-        if ($w.seven_day) { Show-Bar 'สัปดาห์' ($w.seven_day.utilization * 100) $w.seven_day.resetsAt 604800 }
-        if ($rl.status -ne 'allowed') { Write-Host "  สถานะ: $($rl.status)" -ForegroundColor Red }
-        if ($rl.isUsingOverage) { Write-Host '  กำลังใช้ overage' -ForegroundColor Yellow }
-    } else {
-        Write-Host '  ยังไม่มี rate_limit_event ใน auto-loop/.loop/iter-*.jsonl' -ForegroundColor DarkGray
-    }
+    Show-Quota (Get-AgentQuota claude -NoProbe:$probeOff)
     # ค่าใช้จ่ายเทียบ API: รวม total_cost_usd จาก event result ของทุกรอบ
     $costs = foreach ($f in $iterFiles) {
         $r = Select-String -Path $f.FullName -Pattern '"type":"result"' | Select-Object -Last 1
@@ -85,32 +74,22 @@ function Show-Claude {
 
 function Show-Codex {
     Write-Host '━━ Codex ━━' -ForegroundColor Cyan
-    $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' }
-    $sessions = Join-Path $codexHome 'sessions'
-    $cx = $null; $cxFile = $null
-    if (Test-Path $sessions) {
-        # ไล่จากไฟล์ใหม่สุด หา rate_limits ที่มีตัวเลขจริง (primary ไม่เป็น null)
-        foreach ($f in Get-ChildItem $sessions -Recurse -Filter 'rollout-*.jsonl' | Sort-Object LastWriteTime -Descending | Select-Object -First 30) {
-            $hits = @(Select-String -Path $f.FullName -Pattern '"rate_limits":\{"limit_id":"codex"')
-            for ($i = $hits.Count - 1; $i -ge 0 -and -not $cx; $i--) {
-                $r = ($hits[$i].Line | ConvertFrom-Json).payload.rate_limits
-                if ($r -and $r.primary) { $cx = $r; $cxFile = $f }
-            }
-            if ($cx) { break }
-        }
+    $q = Get-AgentQuota codex -NoProbe:$probeOff
+    Show-Quota $q
+    if ($q -and $q.ResetCredits) {
+        Write-Host ('  เครดิตรีเซ็ตฟรี (รีเซ็ตทั้งสัปดาห์ + 5 ชม.): {0} ใบ  — ลูปไม่ใช้เอง ใช้ได้จากแอป Codex' -f $q.ResetCredits) -ForegroundColor DarkCyan
     }
-    if (-not $cx) { Write-Host "  ไม่พบ rate_limits ใน $sessions" -ForegroundColor DarkGray; return }
-    Write-Host ('  ข้อมูลจาก session {0} ({1})  แผน: {2}' -f $cxFile.Name.Substring(8, 19), (Age $cxFile.LastWriteTime), $cx.plan_type) -ForegroundColor DarkGray
-    foreach ($p in @($cx.primary, $cx.secondary)) {
-        if (-not $p) { continue }
-        $name = if ($p.window_minutes -le 300) { '{0} ชม.' -f ($p.window_minutes / 60) } else { 'สัปดาห์' }
-        Show-Bar $name $p.used_percent $p.resets_at ($p.window_minutes * 60)
-    }
-    $c = $cx.credits
-    if ($c -and ($c.has_credits -or $c.unlimited)) {
-        Write-Host ('  เครดิตเสริม: {0}' -f $(if ($c.unlimited) { 'ไม่จำกัด' } else { $c.balance }))
-    }
-    if ($cx.rate_limit_reached_type) { Write-Host "  ติด limit: $($cx.rate_limit_reached_type)" -ForegroundColor Red }
+}
+
+# หลอด 5 ชม. และสัปดาห์ของหนึ่งตัว จาก object ของ quota.ps1
+function Show-Quota($q) {
+    if (-not $q) { Write-Host '  ไม่มีข้อมูล (ถามสดไม่ได้และไม่พบใน log)' -ForegroundColor DarkGray; return }
+    $src = if ($q.Source -eq 'live') { 'สด' } else { $q.Source }
+    $plan = if ($q.Plan) { "  แผน: $($q.Plan)" } else { '' }
+    Write-Host ('  ข้อมูล{0} ณ {1:HH:mm:ss} ({2}){3}' -f $src, (When $q.AsOf), (Age (When $q.AsOf).LocalDateTime), $plan) -ForegroundColor DarkGray
+    Show-Bar '5 ชม.' $q.Used5 $q.Reset5 $q.Win5
+    Show-Bar 'สัปดาห์' $q.UsedW $q.ResetW $q.WinW
+    if ($q.Blocked) { Write-Host "  ถูกบล็อก: $($q.Blocked)" -ForegroundColor Red }
 }
 
 function Show-All {
@@ -119,6 +98,12 @@ function Show-All {
     Write-Host ''
     Show-Codex
     Write-Host ''
+    $plan = Get-QuotaPlan -NoProbe
+    if ($plan.Lead) {
+        Write-Host ('  ▶ ตัวนำรอบหน้า: {0}  ตัวช่วย: {1}   ({2})' -f $plan.Lead, $(if ($plan.Helper) { $plan.Helper } else { 'ไม่มี' }), $plan.Why) -ForegroundColor Green
+    } else {
+        Write-Host ('  ▶ ลูปจะรอถึง {0:HH:mm}  ({1})' -f (When $plan.WaitUntil), $plan.Why) -ForegroundColor Yellow
+    }
     Write-Host '  █ ใช้ไป   ┃ เวลาที่ผ่านไปของ window (█ เลย ┃ = ใช้เร็วกว่าเวลา)' -ForegroundColor DarkGray
 }
 

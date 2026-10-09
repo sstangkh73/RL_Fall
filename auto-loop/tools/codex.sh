@@ -11,6 +11,10 @@ if [ $# -lt 1 ] || [ -z "$1" ]; then
 fi
 
 root="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
+
+# โควตา Codex ใกล้เต็ม → ไม่เรียก บอกให้ผู้เรียกทำเอง (ข้อความขึ้นต้นด้วย QUOTA:)
+quota_msg=$(pwsh -NoProfile -File "$root/auto-loop/tools/quota.ps1" -Check codex)
+if [ $? -eq 3 ]; then echo "$quota_msg"; exit 3; fi
 dir="$root/auto-loop/.loop/codex"
 mkdir -p "$dir"
 ts=$(date +%Y%m%d-%H%M%S)
