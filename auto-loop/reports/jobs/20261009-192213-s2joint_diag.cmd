@@ -1,0 +1,1 @@
+bash scripts/run_stage2_objective_diagnostic.sh

@@ -643,6 +643,90 @@ job `20261008-220533-s2ctrl` ตายกลางทางเพราะ WSL V
   checkpoint 50/100/150 ใช้ดูแนวโน้มเท่านั้น ห้ามเลือกแทนผล 200; เกณฑ์ M2 เดิมทุกข้อใน GOAL.md ไม่เปลี่ยน
   ยังไม่เขียน m2_summary.json หรือ transitions S2 to gate ก่อนมีผลจริงครบ
 
+**ผล KL ใน PPO objective `s2_dmg10000_anc1.0_objective` (9 ต.ค.)** job `20261009-144418-s2joint`
+ใช้ **4:23:26 ชม.** (exit 0): เทรนและประเมิน 3 seeds ต่อกันใน job เดียว
+ตรวจ manifest ทุก seed: complete, anchor_mode=objective, anchor_raw_obs=true, coefficient=1.0,
+max_push_impulse=anchor_max_impulse=0.08, measured_updates=200, initial/teacher checkpoint เป็น M1 ของ seed เดียวกัน
+ไฟล์ผลคือ `results/stage2/seed_*/push_0.08_hard0.5_posture1.0_s2_dmg10000_anc1.0_objective/3d_*/s2_eval*.json`
+run timestamps ของ 63001/63002/63003 คือ `20261009T144426` / `20261009T155457` / `20261009T171929`
+ทุก eval มี 48 episodes ต่อกลุ่ม; แต่ละช่องคือ รอดกลุ่มกู้ได้ S2 / false give-up / damage กลุ่มกู้ไม่ได้ S2
+
+| seed | 50 | 100 | 150 | 200 |
+|---|---|---|---|---|
+| 63001 | 91.7% / 7.1% / 0.001213 | 85.4% / 11.9% / 0.001561 | 93.8% / 2.4% / 0.001395 | 87.5% / 7.1% / 0.001089 |
+| 63002 | 93.8% / 6.5% / 0.001453 | 93.8% / 6.5% / 0.001761 | 95.8% / 4.3% / 0.001443 | 95.8% / 4.3% / 0.001682 |
+| 63003 | 91.7% / 8.7% / 0.001537 | 87.5% / 10.9% / 0.001245 | 95.8% / 4.3% / 0.001183 | 93.8% / 6.5% / 0.001292 |
+
+- final update 200: S1 รอด 87.5 / 95.8 / 95.8%, damage S1 = 0.001867 / 0.001899 / 0.001427,
+  ปล่อยตัว = 0.001607 ทุก seed; S2 ผ่านรอดและ FGU ทั้ง 3 seeds แต่ 63002 damage สูงกว่าปล่อยตัว **4.69%**
+  → **M2 ไม่ผ่าน (ครั้งที่ 8), ผ่านครบ 2/3 seeds**; ไม่เขียน m2_summary.json หรือ transitions S2 to gate
+- head share กลุ่มกู้ไม่ได้ = **0.00813% / 0% / 0.00854%** (สอง seed มีค่าบวกเล็กน้อย ไม่ใช่ศูนย์)
+  ผลยังเป็น engineering proxy และยังไม่ยืนยันว่า policy เรียนรู้การตัดสินใจยอมล้มอย่างชัดเจน
+- update 150 ผ่านทุกเกณฑ์ครบ 3 seeds แต่เป็น checkpoint ดูแนวโน้มตามกฎก่อนรัน จึง **ห้ามใช้แทน endpoint 200**
+  ทั้งการเลือก checkpoint และการปรับ recipe ซ้ำบน scenario ชุดเดิมอาจทำให้ประเมินความสามารถทั่วไปสูงเกินจริง
+  ผลชุดนี้ยังไม่มีการประเมินบน scenario ชุดใหม่เพื่อยืนยันความสามารถทั่วไป
+- แยก impulse S2 / S1 ที่ final200: 0.05 = 100/100, 100/100, 100/96%; 0.08 = 75/75, 92/92, 88/96%
+  กลุ่มกู้ไม่ได้ 63002 รอด 3/48 (0.15: 2/16, 0.20: 1/16, 0.25: 0/16), seed อื่นรอด 0/48 และ S1 รอด 0/48 ทุก seed
+  damage mean รวมผู้รอดด้วยตามนิยามเดิม จึงไม่ได้แปลว่าค่า damage ต่อการล้มต่ำลงเท่ากัน
+- ส่วนถ่วงน้ำหนักลำตัวของ 63002 = 2 × 0.000787716 = 0.00157543 หรือ **93.65%** ของ damage S2 กลุ่มกู้ไม่ได้
+  (S1 ลำตัว 0.00174678, ปล่อยตัวลำตัว 0.000965941); จุดที่ยังไม่ผ่านจึงอยู่ที่การรับแรงด้วยลำตัวเป็นหลัก
+  การลด damage ทั้งสอง seed และการรักษาการกู้ทั้งสาม seed สนับสนุนให้ทดลองสมดุล KL ต่อ แต่ยังไม่พิสูจน์ว่า KL เป็นสาเหตุเดียว
+
+| diagnostics จาก updates.csv | 63001 | 63002 | 63003 |
+|---|---:|---:|---:|
+| samples เฉลี่ย update 151–200 | 9842 | 10239 | 10329 |
+| KL ก่อน joint update เฉลี่ย 151–200 | 0.03422 | 0.03431 | 0.03233 |
+| KL หลัง joint update เฉลี่ย 151–200 | 0.03329 | 0.03342 | 0.03159 |
+| KL ที่ใช้ใน objective เฉลี่ย 151–200 | 0.03631 | 0.03620 | 0.03432 |
+| PPO policy loss เฉลี่ย 151–200 | −0.05576 | −0.05541 | −0.05380 |
+| gradient norm ก่อน clip เฉลี่ย 151–200 | 3.769 | 3.728 | 3.703 |
+| epochs เต็ม / optimizer steps เฉลี่ย 151–200 | 5 / 40 | 5 / 40 | 5 / 40 |
+| early stop ทั้ง 200 updates | 2 | 1 | 0 |
+| steady training seconds (manifest) | 3327.87 | 3925.37 | 2941.33 |
+| transitions/s (manifest, WSL CPU) | 984.65 | 834.77 | 1114.05 |
+
+- early stop ทั้งหมดเกิดใน 50 updates แรก; หลังจากนั้นทุก update รันเต็ม 5 epochs / 40 optimizer steps
+  จึงไม่มีหลักฐานว่า target_kl หยุดการเรียนก่อนเวลาเป็นสาเหตุของ final200 ที่ยังไม่ผ่าน
+  gradient norm รวม actor/critic และ scalar loss แต่ละตัวไม่ใช่หลักฐานว่าทิศทาง gradient ขัดกัน
+  KL_before ใน objective วัดก่อน PPO แต่ legacy วัดหลัง PPO/ก่อน anchor ห้ามเทียบค่านี้ตรงๆ ข้ามโหมด
+  throughput นี้เป็นการวัดบน WSL ไม่ใช่ throughput ต่อ LANTA node
+  หลักฐานที่ดึงจากไฟล์จริงครบทุก seed อยู่ที่ `auto-loop/reports/s2joint_diagnostics_20261009.txt`
+
+- **ความเห็นที่สอง Claude (วิเคราะห์อย่างเดียว):** ยืนยัน verdict 2/3 และแนะนำตรวจความแปรปรวน/การรับแรงก่อนเทรนเพิ่ม
+  damage final ของ 63002 ใน ae5/ae1/wide-ae1/joint อยู่ที่ 0.00164/0.00175/0.00163/0.00168 จึงยังไม่มีแนวโน้ม
+  ว่าลด anchor แล้ว seed นี้ดีขึ้น; checkpoint ที่ต่างกันไม่ใช่การรันประเมินซ้ำของ policy เดียวกัน
+  จึงยังใช้ความแกว่งตาม checkpoint เป็นค่า evaluation standard error ไม่ได้
+  รายงาน helper อยู่ที่ `auto-loop/reports/claude-helper.md`, raw `auto-loop/.loop/claude/20261009-191132.jsonl`
+- **งานถัดไปที่กำหนดก่อนรัน (diagnostic เท่านั้น):** ตรึง S2 objective coefficient=1.0 กับ S1 ที่ update 200
+  ตาม paths/timestamps ข้างบนครบ 3 seeds ไม่เทรนต่อ ไม่เลือก checkpoint และไม่ใช้แทน verdict M2 เดิม
+  `bash scripts/run_stage2_objective_diagnostic.sh` ใช้ reset seed ใหม่ 19000–19095, episode scale=4:
+  กลุ่มกู้ได้ 0.05/0.08 อย่างละ 96 (192 รวม), กลุ่มกู้ไม่ได้ 0.15/0.20/0.25 อย่างละ 64 (192 รวม)
+  ทุก policy ใช้ scenario คู่กัน; ยังเป็น angle grid เดิมที่ละเอียดขึ้น ไม่ใช่การสุ่มทุกทิศทางแบบอิสระ
+  เก็บผลทุก episode, weighted damage รายส่วน, damage เฉพาะผู้ล้ม/ผู้รอด และ paired difference S2−S1/S2−passive
+  เนื่องจาก reset seed ซ้ำข้าม impulse จึงคำนวณ standard error และ bootstrap CI 95% (10,000 resamples)
+  บนค่าเฉลี่ยกลุ่ม reset seed (64 clusters ในกลุ่มกู้ไม่ได้), ไม่ถือ 192 episodes ว่าอิสระทั้งหมด
+  แต่ละ cluster ผูก reset seed กับ angle ที่ index เดียวกัน จึง resample seed และ angle ร่วมกัน
+  CI เป็นค่าประมาณ diagnostic จาก seed/angle ที่สังเกต ไม่ใช่ความไม่แน่นอนที่ตรึง angle ทุกจุดไว้จริง
+  และไม่รวมความไม่แน่นอนจากการเทรนแต่ละ seed; CI 12 ชุด (3 seeds × 2 baselines × 2 กลุ่ม) เป็น exploratory
+  ไม่ปรับ multiple comparisons และไม่ใช้ CI ชุดเดียวเป็นข้อพิสูจน์ยืนยัน
+  ยังไม่มี variance ของ policy ที่ตรึงไว้ จึงยังไม่รู้ว่า 64 clusters ตรวจ excess ~0.000075 ของ 63002 ได้หรือไม่
+  CI คร่อมศูนย์อาจเกิดจากกำลังการทดสอบไม่พอ ไม่ใช่หลักฐานว่า S2 เท่ากับ baseline
+  torso tail เป็น descriptive; ค่าเฉพาะผู้ล้ม/ผู้รอดเป็นคนละ subset ของแต่ละ policy จึงไม่ใช่ paired causal effect
+  output แยกจาก source runs ที่ `results/stage2_diagnostics/joint_coef1_seedbase19000_scale4/seed_*/`
+  มี `episodes.json` และ `diagnostic.json` ซึ่งระบุ diagnostic_only=true, milestone_eligible=false
+  อ้าง hashes ของ checkpoint/normalizer/source เพื่อป้องกันการใช้ไฟล์คนละ run; ไม่แก้หรือลบผลเก่า
+  เมื่อผลจบ ให้ดูขนาด paired excess/SE, CI, torso delta distribution และผลเฉพาะผู้ล้มก่อนเลือกการทดลองใหม่
+  หาก excess ชัดและมาจากลำตัว ให้พิจารณา anchor เฉพาะช่วงเวลาหรือ shaping การรับแรงพร้อมเหตุผลจากผลจริง;
+  หาก CI คร่อมศูนย์ ให้บันทึกความไม่แน่นอนและยังคง verdict M2 ไม่ผ่าน ไม่เปลี่ยนเกณฑ์หรือสร้าง STOP จาก noise
+- **ตรวจซอฟต์แวร์ก่อน diagnostic:** tests ใหม่ผ่าน 4 ข้อและ verify รวม 68 tests ผ่าน (M1 PASS, M2–M4 FAIL)
+  real-checkpoint smoke seed 63001 ใช้ reset base=29000, scale=.04 มี 15 episode records (3 policies × 5 scenarios)
+  flags/hash/group counts ถูกต้องและเรียกซ้ำ reuse ได้โดยไม่เขียนทับผลเดิม; smoke ไม่ใช่หลักฐาน gate
+  archive hash ของ S1 `checkpoint.zip` กับ `checkpoint_update_200.zip` ต่างกันทุก seed แต่ตรวจ policy tensors
+  แล้วตรงกันทุกตัวครบ 3 seeds และ obs_rms mean/var/count, clip_obs/epsilon ของ final/update200 ตรงกัน
+  จึงใช้ baseline update200 ตาม evaluator เดิมได้; หลักฐานตรวจอยู่ที่ `auto-loop/reports/s2diag_smoke_check_20261009.txt`
+  Claude รีวิวไฟล์ใหม่/ผล diff แล้วไม่พบ blocker (raw `auto-loop/.loop/claude/20261009-191853.jsonl`)
+  ข้อสังเกตเรื่อง CI/angle, multiple comparisons, descriptive tail และ per-fall subsets ถูกใส่ไว้ข้างบน
+
 นิยาม "กู้ได้" เทียบกับ controller ที่ระบุชัด (policy S1) ไม่ใช่ค่าสัมบูรณ์
 ตามข้อสังเกตในงาน Learning to Predict Humanoid Fall (2011) ที่อ้างไว้ใน prior-art review
 

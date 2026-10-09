@@ -395,3 +395,49 @@
   ตรวจ manifest anchor_mode=objective, raw_obs=true, coef=1.0, max_impulse=.08, measured_updates=200, explicit S1 checkpoint; ดู KL/epochs/optimizer_steps/gradnorm/early_stop จาก updates.csv
   ผ่านครบตามเกณฑ์ GOAL.md ที่ final200 ทุก seed → เขียน m2_summary.json ชี้ run นี้ทั้ง 3 seeds แล้วทำ M3; ไม่ผ่าน → ให้ Claude วิเคราะห์ diagnostics เทียบ ae1/wide ก่อนเลือกการทดลองใหม่
   ห้ามหยิบ trend checkpoint ที่ดีมาแทน และยังไม่เขียน transitions S2 to gate/M3 milestone ก่อนมีผลผ่านจริง
+
+### รอบ 2026-10-09 19:23
+- **ตัวนำ:** Codex; ตัวช่วย Claude ให้ความเห็นที่สองและรีวิวสั้น วิเคราะห์อย่างเดียว ไม่มีการแก้ไฟล์
+- **งานที่เลือก (M2, Codex ทำเอง):** ประเมินความแปรปรวนและรูปแบบการรับแรงของ objective coefficient=1 ที่ final200
+  ก่อนเลือกการเทรนถัดไป; ใช้ systematic-debugging, doc-coauthoring และ verification-before-completion
+  ปรับ workflow เอกสารเป็นอ่าน/เขียน/รีวิวอัตโนมัติตามคำสั่งไม่มีมนุษย์ ไม่ถามหรือรอคำยืนยัน
+- **job ที่จบ:** `20261009-144418-s2joint` ใช้ **4:23:26 ชม.**, exit 0 (jobs.md ตรงกับ job metadata 15806 วินาที)
+  ตรวจ manifest ทั้ง 3 seeds: objective/raw_obs=true/coef1/max=.08/update200/initial+teacher M1 ของ seed เดียวกัน
+  final200: รอดกลุ่มกู้ได้ S2 87.5 / 95.8 / 93.8% เทียบ S1 87.5 / 95.8 / 95.8%, FGU 7.1 / 4.3 / 6.5%
+  damage กู้ไม่ได้ S2 0.001088945 / 0.001682237 / 0.001292352; S1 0.001866519 / 0.001899228 / 0.001426663,
+  ปล่อยตัว 0.001606949 ทุก seed; head share 0.00813 / 0 / 0.00854% → **M2 ยังไม่ผ่านครั้งที่ 8, ผ่านครบ 2/3**
+  63002 damage สูงกว่าปล่อยตัว 4.69%, ส่วนลำตัวถ่วงน้ำหนัก 93.65%; มีผู้รอด hard 3/48 (S1 0), mean รวมผู้รอดตามนิยามเดิม
+  update150 ผ่านครบทั้ง 3 seeds แต่เป็น trend ที่กำหนดก่อนรัน ห้ามใช้แทน endpoint200; ไม่เขียน milestone M2/M3
+  บันทึก final/trend/per-impulse/ส่วนร่างกาย/diagnostics/เวลาใน Curriculum_Plan ส่วน5 และ `auto-loop/reports/s2joint_diagnostics_20261009.txt`
+  KL_after เฉลี่ย update151–200=.03329/.03342/.03159, ทุก update หลัง50 มี5 epochs/40 optimizer steps,
+  earlystopรวม2/1/0 จึงไม่มีหลักฐานว่า target_kl หยุดก่อนเวลาทำให้ตก gate; throughput WSL 984.65/834.77/1114.05 t/s (ไม่ใช่ LANTA)
+- **Claude ความเห็นที่สอง/รีวิว:** เรียกผ่าน tools/claude.ps1 ด้วย `tmp/claude_joint_second_opinion.md` (64s)
+  และ `tmp/claude_joint_diagnostic_review.md` (67s); logs `auto-loop/.loop/claude/20261009-191132.jsonl` / `20261009-191853.jsonl`
+  report `auto-loop/reports/claude-helper.md`; ตรวจ git diff ทุกครั้งและอ่านไฟล์ใหม่เอง ไม่มี helper แก้ src/tests/docs
+  ยืนยัน gate interpretation; เห็นว่า coef.5 เป็นการเปลี่ยนตัวเดียวแต่หลักฐานตอบสนองต่อความแรง anchor ของ63002ยังไม่ชัด
+  จึงรับคำแนะนำให้ frozen-policy eval ชุดใหม่ใหญ่ขึ้นก่อน ไม่สั่งเทรน coefficient.5 และไม่อ้างว่า checkpoint swing เป็น evaluation SE
+- **สิ่งที่เพิ่ม:** `scripts/stage2_diagnostics.py` ใช้ run_episode/env/summarize ของ stage2_eval เดิมโดยไม่แก้ evaluator/gate
+  เก็บทุก episode, per-part weighted damage, falls-only/survivors-only means, paired deltas ต่อ S1/passive,
+  SE + bootstrapCI95 บน reset-seed/angle clusters ที่ reuseข้ามimpulse; descriptive torso-tail, source/evidence hashes
+  `scripts/run_stage2_objective_diagnostic.sh` ล็อก paths/timestamps S2ทั้ง3ตามrunจริง กับ S1 final200, ไม่มี latest-run selection
+  fixed reset-base19000/scale4 → 192 easy+192 hard ต่อpolicyต่อseed รวม3456episodes; diagnostic_only=true/milestone_eligible=false
+  CI12ชุดเป็น exploratory ไม่ปรับmultiple-comparison; seedและangleถูกresampleร่วมกัน ไม่ใช่ CI ที่ตรึง angle gridจริง
+  ยังไม่รู้ power ตรวจ excess ~.000075; CIคร่อมศูนย์ไม่แปลว่าเท่ากัน; per-fall subsets ไม่ใช่ paired causal comparison
+- **ตรวจทางซอฟต์แวร์:** เพิ่ม4 testsพิสูจน์ pairing/clusterSEไม่ถือimpulsesที่reuse seedเป็นอิสระ/denominators/invalid pairs/new seed design
+  real-policy smoke63001 base29000 scale.04 มี15records (ไม่ใช่ผลผ่านgate), flags/hashes/countsตรงและreuseไม่เขียนทับผ่าน
+  run `results/stage2_diagnostics/smoke_joint_seedbase29000_scale004/seed_63001`; evidence `auto-loop/reports/s2diag_smoke_check_20261009.txt`
+  archive hashของ S1finalกับupdate200ต่างกัน ทำให้ checkสมมติฐาน byte-identical ล้มครั้งแรก; ตรวจต้นเหตุในลำดับsaveแล้ว
+  ใช้ PPO.load ตรวจ policy tensorsทุกตัว + obs_rms mean/var/count, clip_obs/epsilon ตรงกันครบ3seeds จึงไม่มี teacher/baseline mismatch
+- **verify:** หลังเพิ่มโค้ดรัน `pwsh -NoProfile -File auto-loop/verify.ps1`: **68 testsผ่าน**, tests exit=0,
+  M1 PASS, M2–M4 FAIL (goal exit=1), goal-status2026-10-09 19:20:21; bash -n/compileall/git diff --check ผ่าน
+  ไม่มีการแก้ไฟล์ควบคุมลูปที่ห้ามแก้, ไม่มีcommit/push/merge/submitLANTA, ไม่แก้หรือลบผลเดิม
+- **job ที่สั่ง:** `20261009-192213-s2joint_diag` = `bash scripts/run_stage2_objective_diagnostic.sh`
+  ผ่าน wsl-job.ps1, คาด **45–60 นาที** (3seedsต่อกัน, evalเท่านั้น ไม่มีเทรน); ตรวจ jobs.ps1 เป็นrunning และ Python PID704ใช้pathsถูกต้อง
+  output `results/stage2_diagnostics/joint_coef1_seedbase19000_scale4/seed_*/episodes.json` กับ `diagnostic.json`
+- **ปัญหา:** M2ยังตกเกณฑ์damage63002; ไม่มีหลักฐานว่าเป็นไปไม่ได้ทางฟิสิกส์ จึงไม่สร้างSTOPและไม่ลดเกณฑ์
+- **งานถัดไป:** สร้าง `auto-loop/WAIT_FOR_JOBS` แล้วจบรอบ; รอบถัดไปอ่าน diagnostic.json/episodes.json ครบ3seeds + jobs.md
+  บันทึกเวลาและ paired means/SE/CI/torso distribution/falls-only ใน Curriculum_Plan; ตรวจ provenance final200/base19000/scale4/sourcehash
+  **ผล diagnostic ชุดใหม่ใช้วิเคราะห์เท่านั้น แม้ผ่านตัวเลขก็ไม่เปลี่ยน verdict M2เดิม ไม่ใช้เขียนm2_summary.json**
+  เลือกการทดลองใหม่หนึ่งชิ้นจากขนาดpaired excessต่อSEและตำแหน่งรับแรง: หากชัดและมาจากtorsoพิจารณา time-window anchorหรือshaping
+  ถ้าCIคร่อมศูนย์ให้รายงานไม่แน่นอนและเลือกการทดลองที่คาดเปลี่ยนพฤติกรรมชัดเจน ไม่ไล่ค่าcoefเพื่อให้scenarioเดิมผ่านโดยบังเอิญ
+  ต้องกำหนด recipe/endpoint/update200/3seeds ก่อนเทรนครั้งใหม่ ไม่หยิบcheckpoint150ที่ผ่านมาแทน; M3ยังรอtransitions S2ถึงgateจริง
