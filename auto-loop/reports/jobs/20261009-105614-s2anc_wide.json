@@ -1,1 +1,1 @@
-{"id": "20261009-105614-s2anc_wide", "state": "running", "start": "2026-10-09T10:56:22+0700", "start_epoch": 1791518182, "end": null, "duration_s": null, "exit_code": null, "pid": 696}
+{"id": "20261009-105614-s2anc_wide", "state": "done", "start": "2026-10-09T10:56:22+0700", "start_epoch": 1791518182, "end": "2026-10-09T14:28:17+0700", "duration_s": 12715, "exit_code": 0, "pid": 696}

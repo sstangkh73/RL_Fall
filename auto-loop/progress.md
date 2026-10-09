@@ -355,3 +355,43 @@
 - **งานถัดไป:** เหมือนรอบ 10:55 คืออ่าน s2_eval*.json ของ `push_0.12_..._anc1.0_ae1` (+ `s2_per_impulse.py`, `anchor_kl.py`) แล้วบันทึกลง Curriculum_Plan ส่วน 5 พร้อมเวลา job
   - ผ่านครบ 3 seeds ที่ update 200 → เขียน m2_summary.json แล้วแก้ข้อ 2–5 ของ LANTA_Compute_Estimate (S2 = 200 updates = 3.3M) + เขียน m3_compute.json (ใส่ sbatch ทั้ง 3 ไฟล์)
   - ไม่ผ่าน → ย้าย KL เข้าไปใน PPO loss + แก้ raw obs capture (`train.py:207`) ตามลำดับที่ Codex เสนอ
+
+### รอบ 2026-10-09 14:45
+- **ตัวนำ:** Codex; ตัวช่วย Claude ใช้เฉพาะความเห็นที่สองและรีวิว (วิเคราะห์อย่างเดียว ไม่มีการแก้ไฟล์)
+- **งานที่เลือก (M2, Codex ทำเอง):** ทดลองเปลี่ยนจาก KL phase แยกหลัง PPO เป็น KL ใน objective เดียวกัน เพราะ M2 ติด trade-off กู้/เสียหายมา 7 recipes
+  เพิ่ม `src/rl_fall/anchor_ppo.py` (อ้างอิง PPO.train ของ SB3 2.9.0 ที่ pin อยู่ใน pyproject พร้อม MIT notice), CLI `--anchor-mode objective`
+  เก็บโหมด `post_update` เดิมเพื่อทำซ้ำผลเก่า; coefficient=1.0 มีน้ำหนักเทียบ PPO ก่อน Adam rescale gradient
+  สุ่ม uniform with replacement จาก state กู้ได้ที่ยังไม่ล้มแยกจาก PPO minibatch; frozen S1/normalizer ไม่อัปเดต
+  โหมดใหม่เก็บ raw observation ก่อน action จริง จึงไม่แปลงย้อนด้วย RMS ที่ถูกอัปเดตหลัง step และไม่สูญข้อมูลจาก clipping
+  ไม่คิด KL ตอน critic warmup; teacher/rollout samples ไม่ถูกใส่ใน checkpoint และโหลดต่อจาก S1/ตัวเองหรือประเมินด้วย PPO.load ได้
+  log KL ใน objective, PPO policy loss, gradient norm ก่อน clip, full epochs, optimizer steps และ early stop; manifest ระบุ RNG/sampling/weighting
+  ส่ง env/CLI/tag ใน run_stage1/run_stage2_pilot และ LANTA sbatch ให้ตรงกัน (ไม่ submit); pilot หยุดเมื่อ seed แรกเกิด error
+  เพิ่ม `scripts/run_stage2_objective.sh` ล็อก train/eval update=200, trend 50/100/150 เป็น diagnostic เท่านั้น
+- **job ที่จบ:** `20261009-105614-s2anc_wide` ใช้ **3:31:55 ชม.**, exit 0; ตรวจ manifest ทั้ง 3 seeds (recoverable max=.12, anchor_epochs=1)
+  update 200: รอดกู้ได้ 83.3 / 95.8 / 83.3% (S1 87.5 / 95.8 / 95.8%), FGU 11.9 / 4.3 / 17.4%
+  damage กู้ไม่ได้ 0.001461 / 0.001629 / 0.001391 (S1 0.001867 / 0.001899 / 0.001427, ปล่อยตัว 0.001607 ทุก seed), head share 0% ทุก seed
+  63001 ไม่ผ่าน FGU; 63002 damage สูงกว่าปล่อยตัว 1.4%; 63003 ไม่ผ่านรอดและ FGU → **M2 ยังไม่ผ่าน ครั้งที่ 7 ไม่มี seed ผ่านครบที่ update 200**
+  บันทึกผลครบทั้ง final/trend และเวลาใน `planning/Curriculum_Plan_TH.md` ส่วน 5; ไม่เลือก checkpoint ก่อนหน้าและไม่เขียน m2_summary.json
+- **ตรวจทางซอฟต์แวร์:** เพิ่ม 4 tests (raw obs/RMS/clipping/reset+hard mask, KL gradient/teacher/critic, empty anchor เหมือน upstream+save/load, joint training/warmup/resume)
+  พิสูจน์ regression raw obs แบบ red/green: override ใน process ชั่วคราวให้ใช้ callback เดิมแล้ว test ล้ม (12/12 ค่าไม่ตรง), โค้ดใหม่ผ่าน
+  real-body smoke 8 envs, 2 updates seed 63001 จบ 37.7 วินาที (steady 28.9s, 1135 t/s ขณะ verify รันพร้อมกัน ไม่ใช้เป็น throughput M3)
+  run: `results/stage2_objective_smoke/3d_A_env8_subproc_cpu_seed63001_t4_20261009T143930`; samples 8861/11438, KL ก่อน→หลัง .000015→.012294 / .012284→.019039
+  smoke เป็นการตรวจการรัน ไม่มี survival/damage eval และไม่ใช่หลักฐานผ่าน gate
+- **Claude ความเห็นที่สอง/รีวิว:** prompt `tmp/claude_s2_objective_analysis.md` และ `tmp/claude_s2_objective_review.md`; report `auto-loop/reports/claude-helper.md`
+  raw logs `auto-loop/.loop/claude/20261009-143113.jsonl` (486s) และ `20261009-144105.jsonl` (105s); ไม่พบ blocker และไม่ได้แก้ไฟล์ ตรวจ git diff เองแล้ว
+  ใช้ข้อเสนอ diagnostics/ล็อก update200; ไม่ใช้ข้อเสนอเปลี่ยน FGU ให้เท่า S1 เพราะขัดเกณฑ์เดิมของผู้ใช้
+  KL_before ใน objective วัดก่อน PPO แต่ legacy วัดหลัง PPO/ก่อน anchor จึงห้ามเปรียบเทียบค่านี้ข้ามโหมดตรงๆ
+  การ resume ไม่ใช่ bit-identical เพราะไม่ได้กู้ RNG state (ข้อจำกัดเดิม); objective สุ่ม anchor ใช้ torch RNG จึงไม่อ้าง trajectory matched กับ legacy
+- **verify:** รัน `pwsh -NoProfile -File auto-loop/verify.ps1` หลังแก้โค้ด/diagnostics ล่าสุด **pytest ผ่าน 64 tests**, tests exit=0, M1 PASS, M2–M4 FAIL (goal exit=1)
+  goal-status เวลา 2026-10-09 14:42:40; `.loop/last-verify.txt` ยังเป็นผลก่อนรอบ (ลูปเป็นผู้เขียนไฟล์นี้)
+  `bash -n` สคริปต์ที่แก้และ `git diff --check` ผ่าน รวมหลังล็อก UPDATES/UPDATE=200; ไม่มี commit/push/merge และไม่แตะไฟล์ควบคุมลูปที่ห้ามแก้
+- **ปัญหา:** เทสต์เปรียบเทียบ RNG ล้มครั้งแรกเพราะรีเซ็ต seed แทนคืน RNG หลังสร้าง learner แก้ fixture แล้วผ่าน (ไม่ใช่บั๊ก product)
+  helper ครั้งแรกค้น package ด้วย find / แล้วค้าง ~5 นาที จึงหยุดเฉพาะ process find PID 675 และใช้ literal installed package path; ไม่กระทบ job เทรน
+  ยังไม่มีหลักฐานว่า objective mode ผ่าน M2; ใช้ coefficient=1.0 และ recoverable=.08 เป็นการทดลองเดียวที่กำหนดก่อนรัน ไม่เปลี่ยน reward/damage/gate
+- **job ที่สั่ง:** `20261009-144418-s2joint` = `ANCHOR=1.0 RECOVERABLE_MAX=0.08 bash scripts/run_stage2_objective.sh 63001 63002 63003`
+  เทรนทีละ seed ใน job เดียว, update 200 ทุก seed, final eval แล้ว trend; คาดว่า **3.5–4 ชม.**
+  ผลที่ `results/stage2/seed_*/push_0.08_hard0.5_posture1.0_s2_dmg10000_anc1.0_objective/3d_*/s2_eval*.json`
+- **งานถัดไป:** สร้าง `auto-loop/WAIT_FOR_JOBS` แล้วจบรอบ ให้รอบถัดไปอ่าน final/trend ทั้ง 3 seeds และ jobs.md บันทึกเวลา/ตัวเลขใน Curriculum_Plan
+  ตรวจ manifest anchor_mode=objective, raw_obs=true, coef=1.0, max_impulse=.08, measured_updates=200, explicit S1 checkpoint; ดู KL/epochs/optimizer_steps/gradnorm/early_stop จาก updates.csv
+  ผ่านครบตามเกณฑ์ GOAL.md ที่ final200 ทุก seed → เขียน m2_summary.json ชี้ run นี้ทั้ง 3 seeds แล้วทำ M3; ไม่ผ่าน → ให้ Claude วิเคราะห์ diagnostics เทียบ ae1/wide ก่อนเลือกการทดลองใหม่
+  ห้ามหยิบ trend checkpoint ที่ดีมาแทน และยังไม่เขียน transitions S2 to gate/M3 milestone ก่อนมีผลผ่านจริง

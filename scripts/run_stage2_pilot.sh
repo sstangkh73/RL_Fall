@@ -30,13 +30,16 @@ if [ -n "$ANCHOR" ]; then TAG="${TAG}_anc${ANCHOR}"; fi
 # ANCHOR_EPOCHS sets the anchor strength (passes per update, default 5; tag gets _ae<N>).
 ANCHOR_EPOCHS="${ANCHOR_EPOCHS:-}"
 if [ -n "$ANCHOR_EPOCHS" ]; then TAG="${TAG}_ae${ANCHOR_EPOCHS}"; fi
+ANCHOR_MODE="${ANCHOR_MODE:-post_update}"
+if [ "$ANCHOR_MODE" != "post_update" ]; then TAG="${TAG}_${ANCHOR_MODE}"; fi
 for SEED in "${SEEDS[@]}"; do
   S1=$(ls -td results/stage1_v1_0/seed_$SEED/push_0.12_hard0.5_posture1.0_natural4_r2/3d_* | head -1)
   env BODY=v1_0 POSTURE=1.0 POSTURE_VERSION=4 NATURAL=1 CP=10 HARD=0.5 HARD_RANGE="0.15 0.25" \
       FALL_CONTINUE=2.5 DAMAGE_W="$DAMAGE_W" OUT_ROOT=results/stage2 STAGE=S2_recover_or_fall \
       INIT_CHECKPOINT="$S1/checkpoint.zip" TAG="$TAG" CRITIC_WARMUP="$CRITIC_WARMUP" LR="$LR" \
       ANCHOR="$ANCHOR" ANCHOR_CHECKPOINT="$S1/checkpoint.zip" ANCHOR_EPOCHS="$ANCHOR_EPOCHS" \
-      scripts/run_stage1.sh "$SEED" "$UPDATES" "$RECOVERABLE_MAX"
+      ANCHOR_MODE="$ANCHOR_MODE" \
+      scripts/run_stage1.sh "$SEED" "$UPDATES" "$RECOVERABLE_MAX" || exit $?
   echo "=== S2 seed $SEED done $(date '+%F %T')"
 done
 echo "=== S2 seeds done $(date '+%F %T')"

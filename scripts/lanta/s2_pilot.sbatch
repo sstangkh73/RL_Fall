@@ -25,6 +25,7 @@ if [ "${CRITIC_WARMUP:-0}" != "0" ]; then TAG="${TAG}_cw${CRITIC_WARMUP}"; fi
 if [ -n "${LR:-}" ]; then TAG="${TAG}_lr${LR}"; fi
 if [ -n "${ANCHOR:-}" ]; then TAG="${TAG}_anc${ANCHOR}"; fi
 if [ -n "${ANCHOR_EPOCHS:-}" ]; then TAG="${TAG}_ae${ANCHOR_EPOCHS}"; fi
+if [ "${ANCHOR_MODE:-post_update}" != "post_update" ]; then TAG="${TAG}_${ANCHOR_MODE}"; fi
 export TAG
 for SEED in $SEEDS; do
   ( bash scripts/run_stage2_pilot.sh "$SEED" && bash scripts/run_stage2_eval.sh "$SEED" ) \

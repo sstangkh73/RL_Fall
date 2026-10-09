@@ -36,6 +36,7 @@ from .env import EnvironmentConfig, RLFallEnv
 from .env3d import BALANCE_EPISODE_SECONDS, BODY_ASSETS, RLFall3DEnv
 from .damage import PARTS
 from .telemetry import ResourceSampler
+from .anchor_ppo import AnchorPPO
 
 # CREATE_NO_WINDOW exists only on Windows; 0 is the POSIX no-op.
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -226,6 +227,51 @@ class AnchorSamplesCallback(BaseCallback):
         return np.concatenate(self.obs_s2), np.concatenate(self.obs_anchor)
 
 
+class ObjectiveAnchorSamplesCallback(AnchorSamplesCallback):
+    """Capture raw inputs before env.step updates RMS or clips observations.
+
+    The legacy post-update mode retains its old collection for reproducibility.
+    Objective mode attaches an independent eligible-state dataset before train().
+    """
+    def __init__(self, training_env, normalizer, max_impulse, policy, coef):
+        super().__init__(training_env, normalizer, max_impulse)
+        self.anchor_policy = policy
+        self.coef = coef
+
+    def _on_rollout_start(self) -> None:
+        super()._on_rollout_start()
+        self.raw_previous = self.normalizing_env.get_original_obs().copy()
+
+    def _on_step(self) -> bool:
+        infos, dones = self.locals["infos"], self.locals["dones"]
+        eligible = np.array([
+            info.get("push_impulse", float("inf")) <= self.max_impulse + 1e-9
+            for info in infos
+        ]) & ~self.previous_fallen
+        if eligible.any():
+            self.obs_s2.append(
+                self.locals["obs_tensor"].detach().cpu().numpy()[eligible].copy()
+            )
+            frozen = self.normalizer
+            normalized = (self.raw_previous[eligible] - frozen.obs_rms.mean) / np.sqrt(
+                frozen.obs_rms.var + frozen.epsilon
+            )
+            self.obs_anchor.append(np.clip(
+                normalized, -frozen.clip_obs, frozen.clip_obs
+            ).astype(np.float32))
+        self.previous_fallen[:] = [
+            bool(info.get("fallen", False)) and not bool(done)
+            for info, done in zip(infos, dones)
+        ]
+        # This includes reset observations for done environments, exactly as the
+        # next action's input does. Never use terminal_observation for that action.
+        self.raw_previous = self.normalizing_env.get_original_obs().copy()
+        return True
+
+    def _on_rollout_end(self) -> None:
+        self.model.set_anchor_samples(self.anchor_policy, *self.samples(), self.coef)
+
+
 def anchor_step(
     model: PPO, anchor_policy: ActorCriticPolicy,
     obs_s2: np.ndarray | torch.Tensor, obs_anchor: np.ndarray | torch.Tensor,
@@ -294,8 +340,9 @@ def create_model(
     log_std_init: float = 0.0, gamma: float = 0.999,
     learning_rate: float = 3e-4, batch_size: int = 512, n_epochs: int = 10,
     target_kl: float | None = None,
+    model_class: type[PPO] = PPO,
 ) -> PPO:
-    return PPO(
+    return model_class(
         "MlpPolicy", env, device=device, seed=seed,
         learning_rate=learning_rate, n_steps=n_steps, batch_size=batch_size,
         n_epochs=n_epochs, target_kl=target_kl,
@@ -431,11 +478,17 @@ def run_training(
     critic_warmup_updates: int = 0, learning_rate: float | None = None,
     anchor_coef: float = 0.0, anchor_checkpoint: Path | None = None,
     anchor_max_impulse: float | None = None, anchor_epochs: int | None = None,
+    anchor_mode: str = "post_update",
 ) -> dict[str, object]:
-    if anchor_epochs is None:
+    if anchor_mode not in ("post_update", "objective"):
+        raise ValueError("anchor_mode must be post_update or objective")
+    if anchor_mode == "objective" and anchor_epochs is not None:
+        raise ValueError("anchor_epochs applies only to post_update mode")
+    if anchor_epochs is None and anchor_mode == "post_update":
         anchor_epochs = CURRICULUM_PPO["n_epochs"]
     if anchor_coef > 0 and anchor_checkpoint is None:
         raise ValueError("anchor_checkpoint is required when anchor_coef > 0")
+    model_class = AnchorPPO if anchor_coef > 0 and anchor_mode == "objective" else PPO
     if environment not in ("planar", "3d"):
         raise ValueError("environment must be planar or 3d")
     if environment == "planar" and (body, mode) != ("v0_1", "task"):
@@ -505,7 +558,7 @@ def run_training(
                            norm_reward, gamma)
         if init_checkpoint is not None:
             # Curriculum continuation: policy, optimizer and observation statistics.
-            model = PPO.load(init_checkpoint, env=env, device=device)
+            model = model_class.load(init_checkpoint, env=env, device=device)
             model.set_random_seed(seed)
             normalizer = init_checkpoint.with_name(
                 init_checkpoint.stem.replace("checkpoint", "vecnormalize") + ".pkl"
@@ -523,6 +576,7 @@ def run_training(
         else:
             # Curriculum modes start with smaller exploration noise (std ~0.37).
             model = create_model(env, device, seed, n_steps, network_width,
+                                 model_class=model_class,
                                  log_std_init=0.0 if mode == "task" else -1.0,
                                  gamma=gamma,
                                  **({} if mode == "task" else {
@@ -541,9 +595,13 @@ def run_training(
             anchor_model.policy.set_training_mode(False)
             for parameter in anchor_model.policy.parameters():
                 parameter.requires_grad_(False)
-            anchor_callback = AnchorSamplesCallback(
+            anchor_args = (
                 env, AnchorNormalizer.load(anchor_checkpoint),
                 max_push_impulse if anchor_max_impulse is None else anchor_max_impulse,
+            )
+            anchor_callback = (
+                ObjectiveAnchorSamplesCallback(*anchor_args, anchor_model.policy, anchor_coef)
+                if anchor_mode == "objective" else AnchorSamplesCallback(*anchor_args)
             )
 
         def run_evaluation() -> dict[str, object]:
@@ -600,7 +658,9 @@ def run_training(
                 if anchor_callback is not None:
                     obs_s2, obs_anchor = anchor_callback.samples()
                     anchor_kl_before, anchor_kl_after = 0.0, 0.0
-                    if len(update_rows) >= critic_warmup_updates:
+                    if anchor_mode == "objective":
+                        anchor_kl_before, anchor_kl_after = model.anchor_kl_before, model.anchor_kl_after
+                    elif len(update_rows) >= critic_warmup_updates:
                         anchor_kl_before, anchor_kl_after = anchor_step(
                             model, anchor_model.policy, obs_s2, obs_anchor, anchor_coef,
                             anchor_epochs, CURRICULUM_PPO["batch_size"],
@@ -630,6 +690,15 @@ def run_training(
                         "anchor_kl_before": anchor_kl_before,
                         "anchor_kl_after": anchor_kl_after,
                     })
+                    if anchor_mode == "objective":
+                        update_rows[-1].update({
+                            "anchor_kl_objective": model.anchor_kl_objective,
+                            "anchor_policy_loss": model.anchor_policy_loss,
+                            "anchor_grad_norm_before_clip": model.anchor_grad_norm,
+                            "anchor_epochs_completed": model.anchor_epochs_completed,
+                            "anchor_optimizer_steps": model.anchor_optimizer_steps,
+                            "anchor_early_stopped": int(model.anchor_early_stopped),
+                        })
                 if updates_writer is None:
                     updates_writer = csv.DictWriter(
                         updates_stream, fieldnames=list(update_rows[0])
@@ -702,6 +771,13 @@ def run_training(
             "anchor_max_impulse": (max_push_impulse if anchor_max_impulse is None
                                    else anchor_max_impulse),
             "anchor_epochs": anchor_epochs,
+            "anchor_mode": anchor_mode,
+            "anchor_raw_obs": anchor_mode == "objective",
+            "anchor_objective_sampling": ("uniform_eligible_with_replacement"
+                                          if anchor_mode == "objective" else None),
+            "anchor_uses_torch_rng": anchor_coef > 0 and anchor_mode == "objective",
+            "anchor_objective_weighting": ("conditional_mean_not_eligible_fraction_scaled"
+                                           if anchor_mode == "objective" else None),
             "gamma": gamma, "norm_reward": norm_reward,
             "init_checkpoint": str(init_checkpoint) if init_checkpoint else None,
             "resumed_from_update": resumed_from, "log_std_override": log_std,
@@ -798,6 +874,8 @@ def main() -> None:
     parser.add_argument("--anchor-epochs", type=int, default=None,
                         help="KL anchor passes over the samples after each PPO update "
                              "(default PPO n_epochs); Adam makes this, not the coef, the strength knob")
+    parser.add_argument("--anchor-mode", choices=("post_update", "objective"), default="post_update",
+                        help="separate legacy KL phase, or KL in the PPO minibatch objective")
     args = parser.parse_args()
     wrapper = args.wrapper or ("dummy" if args.n_envs == 1 else "subproc")
     result = run_training(args.output, args.device, args.condition, args.seed,
@@ -813,7 +891,7 @@ def main() -> None:
                           args.fall_continue_s, args.damage_weight,
                           args.critic_warmup_updates, args.learning_rate,
                           args.anchor_coef, args.anchor_checkpoint, args.anchor_max_impulse,
-                          args.anchor_epochs)
+                          args.anchor_epochs, args.anchor_mode)
     print(json.dumps(result, indent=2, sort_keys=True))
 
 

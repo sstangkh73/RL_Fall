@@ -236,3 +236,152 @@ def test_disabled_anchor_preserves_weights_rng_and_csv_schema(tmp_path, monkeypa
     with (run_dirs[1] / "updates.csv").open() as stream:
         assert next(csv.reader(stream)) == columns
     assert not any(column.startswith("anchor_") for column in columns)
+
+
+def test_objective_callback_keeps_raw_input_across_rms_updates_clipping_and_resets():
+    env = _env(2)
+    try:
+        env.clip_obs = 0.1
+        rms = train.RunningMeanStd(shape=(3,))
+        frozen = AnchorNormalizer(rms, clip_obs=100, epsilon=1e-8)
+        callback = train.ObjectiveAnchorSamplesCallback(env, frozen, 0.08, None, 1.0)
+        obs = env.reset()
+        callback._on_rollout_start()
+        expected = []
+        for i in range(6):
+            raw_before = env.get_original_obs().copy()
+            new_obs, _, dones, infos = env.step(np.full((2, 2), 0.8, dtype=np.float32))
+            # A hard-push environment never contributes, even before the push.
+            infos[1]['push_impulse'] = 0.2
+            # Exaggerate the race: RMS changes after generating the action input.
+            env.obs_rms.update(np.full((200, 3), 50.0))
+            callback.locals = dict(obs_tensor=torch.as_tensor(obs), infos=infos, dones=dones)
+            callback._on_step()
+            if i in (0, 1, 2, 5):
+                expected.append(raw_before[:1])
+            obs = new_obs
+        s2, s1 = callback.samples()
+        assert len(s2) == 4
+        raw = np.concatenate(expected)
+        np.testing.assert_allclose(s1, raw / np.sqrt(rms.var + frozen.epsilon), rtol=1e-6)
+        assert np.max(np.abs(s2)) <= 0.1
+        assert np.max(np.abs(s1)) > 0.1
+        # Input following terminal reset is zero, never the terminal state.
+        np.testing.assert_array_equal(s1[-1], np.zeros(3))
+    finally:
+        env.close()
+
+
+def test_objective_anchor_gradient_scales_with_coef_and_leaves_teacher_critic_alone():
+    from rl_fall.anchor_ppo import AnchorPPO
+    env = _env()
+    try:
+        model = create_model(env, 'cpu', 5, 32, network_width=8,
+                             model_class=AnchorPPO, batch_size=32, n_epochs=1)
+        frozen = _model(env, seed=7)
+        frozen.policy.requires_grad_(False)
+        frozen_before = {k: v.clone() for k, v in frozen.policy.state_dict().items()}
+        obs = np.random.default_rng(5).normal(size=(32, 3)).astype(np.float32)
+        model.set_anchor_samples(frozen.policy, obs, obs, 1.0)
+        gradients = []
+        for coef in (1.0, 0.2):
+            model.policy.optimizer.zero_grad(set_to_none=True)
+            torch.manual_seed(17)
+            (coef * model.anchor_loss(32)).backward()
+            gradients.append(model.policy.action_net.weight.grad.clone())
+            assert all(p.grad is None for p in model.policy.value_net.parameters())
+            assert all(p.grad is None for p in model.policy.mlp_extractor.value_net.parameters())
+            assert all(p.grad is None for p in frozen.policy.parameters())
+        assert gradients[0].abs().sum() > 0
+        torch.testing.assert_close(gradients[1], gradients[0] * 0.2)
+        assert all(torch.equal(v, frozen.policy.state_dict()[k]) for k, v in frozen_before.items())
+    finally:
+        env.close()
+
+
+def test_empty_objective_anchor_is_bitwise_upstream_ppo_and_checkpoints_exclude_teacher(tmp_path):
+    from rl_fall.anchor_ppo import AnchorPPO
+    states, rngs = [], []
+    for cls in (PPO, AnchorPPO):
+        env = _env()
+        try:
+            model = create_model(env, 'cpu', 5, 32, network_width=8,
+                                 model_class=cls, batch_size=32, n_epochs=2)
+            if cls is AnchorPPO:
+                torch_rng, numpy_rng = torch.get_rng_state().clone(), np.random.get_state()
+                frozen = _model(env, seed=7)
+                # Preserve the state after learner initialization, rather than
+                # reseeding to the state before it consumed initialization RNG.
+                torch.set_rng_state(torch_rng)
+                np.random.set_state(numpy_rng)
+                env.seed(5)
+                model.set_anchor_samples(frozen.policy, np.empty((0, 3)), np.empty((0, 3)), 1.0)
+            model.learn(32)
+            states.append({k: v.clone() for k, v in model.policy.state_dict().items()})
+            rngs.append(torch.get_rng_state().clone())
+            if cls is AnchorPPO:
+                model.save(tmp_path / 'objective.zip')
+                loaded = AnchorPPO.load(tmp_path / 'objective.zip', device='cpu')
+                assert loaded._anchor_policy is None
+                assert loaded._anchor_coef == 0
+                assert len(loaded._anchor_obs_s2) == 0
+                # Evaluators use plain PPO.load; its behavior must match too.
+                plain = PPO.load(tmp_path / 'objective.zip', device='cpu')
+                assert all(torch.equal(v, plain.policy.state_dict()[k]) for k, v in states[-1].items())
+        finally:
+            env.close()
+    assert all(torch.equal(v, states[1][k]) for k, v in states[0].items())
+    assert torch.equal(*rngs)
+
+
+def test_objective_training_and_resume_use_joint_loss_without_legacy_phase(tmp_path, monkeypatch):
+    common = _tiny_training(monkeypatch)
+    env = _env()
+    checkpoint = tmp_path / 'checkpoint.zip'
+    try:
+        _model(env).save(checkpoint)
+        env.save(tmp_path / 'vecnormalize.pkl')
+    finally:
+        env.close()
+    monkeypatch.setattr(train, 'anchor_step', lambda *args: pytest.fail('legacy phase called'))
+    calls = []
+    from rl_fall.anchor_ppo import AnchorPPO
+    real_loss = AnchorPPO.anchor_loss
+    def tracked_loss(model, n):
+        assert not any(p.requires_grad for p in model._anchor_policy.parameters())
+        calls.append(n)
+        return real_loss(model, n)
+    monkeypatch.setattr(AnchorPPO, 'anchor_loss', tracked_loss)
+    result = train.run_training(tmp_path / 'run', measured_updates=2,
+                                checkpoint_updates=(0, 1, 2), init_checkpoint=checkpoint,
+                                anchor_coef=1.0, anchor_checkpoint=checkpoint,
+                                anchor_mode='objective', max_push_impulse=0.08,
+                                critic_warmup_updates=1, **common)
+    run_dir = tmp_path / 'run' / result['run_id']
+    assert calls and result['status'] == 'complete'
+    assert result['anchor_mode'] == 'objective' and result['anchor_raw_obs']
+    assert result['anchor_epochs'] is None
+    assert result['anchor_objective_sampling'] == 'uniform_eligible_with_replacement'
+    initial = PPO.load(run_dir / 'checkpoint_update_0.zip').policy.state_dict()
+    warm = PPO.load(run_dir / 'checkpoint_update_1.zip').policy.state_dict()
+    keys = [k for k in initial if k.startswith(('mlp_extractor.policy_net.', 'action_net.', 'log_std'))]
+    assert all(torch.equal(initial[k], warm[k]) for k in keys)
+    resumed = train.run_training(tmp_path / 'run', measured_updates=3, resume_dir=run_dir,
+                                 anchor_coef=1.0, anchor_checkpoint=checkpoint,
+                                 anchor_mode='objective', max_push_impulse=0.08,
+                                 critic_warmup_updates=1, **common)
+    assert resumed['status'] == 'complete' and resumed['resumed_from_update'] == 2
+    assert resumed['anchor_checkpoint'] == str(checkpoint)
+    with (run_dir / 'updates.csv').open() as stream:
+        rows = list(csv.DictReader(stream))
+    assert len(rows) == 3 and all(int(r['anchor_samples']) > 0 for r in rows)
+    assert all(np.isfinite(float(r['anchor_kl_after'])) for r in rows)
+    assert float(rows[0]['anchor_kl_before']) == float(rows[0]['anchor_kl_after'])
+    assert int(rows[0]['anchor_optimizer_steps']) == 0
+    assert all(int(r['anchor_optimizer_steps']) > 0 for r in rows[1:])
+    assert all(0 < int(r['anchor_epochs_completed']) <= 2 for r in rows[1:])
+    assert all(float(r['anchor_grad_norm_before_clip']) > 0 for r in rows[1:])
+    assert any(float(r['anchor_kl_after']) > 0 for r in rows[1:])
+    with pytest.raises(ValueError, match='anchor_epochs'):
+        train.run_training(tmp_path / 'invalid', measured_updates=1,
+                           anchor_mode='objective', anchor_epochs=1, **common)

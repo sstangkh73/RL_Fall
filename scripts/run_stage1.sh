@@ -23,6 +23,7 @@
 #   ANCHOR  KL loss weight toward the frozen ANCHOR_CHECKPOINT policy (default 0)
 #   ANCHOR_CHECKPOINT  explicit S1 checkpoint, also used when resuming
 #   ANCHOR_EPOCHS  KL anchor passes per update (default: PPO n_epochs = 5)
+#   ANCHOR_MODE  post_update (legacy) or objective (KL in PPO loss)
 #   OUT_ROOT  results root (default results/stage1 or results/stage1_<body>)
 #   STAGE  manifest stage label (default S1_balance)
 set -euo pipefail
@@ -48,6 +49,7 @@ if [ -n "${LR:-}" ]; then EXTRA+=(--learning-rate "$LR"); fi
 if [ -n "${ANCHOR:-}" ]; then EXTRA+=(--anchor-coef "$ANCHOR"); fi
 if [ -n "${ANCHOR_CHECKPOINT:-}" ]; then EXTRA+=(--anchor-checkpoint "$ANCHOR_CHECKPOINT"); fi
 if [ -n "${ANCHOR_EPOCHS:-}" ]; then EXTRA+=(--anchor-epochs "$ANCHOR_EPOCHS"); fi
+if [ -n "${ANCHOR_MODE:-}" ]; then EXTRA+=(--anchor-mode "$ANCHOR_MODE"); fi
 STAGE="${STAGE:-S1_balance}"
 TAG="${TAG:-}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
