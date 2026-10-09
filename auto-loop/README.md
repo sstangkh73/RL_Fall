@@ -46,6 +46,9 @@ pwsh -File auto-loop/run-loop.ps1
   งานที่สั่ง Codex (`[Claude → Codex]`) และคำตอบเต็มของ Codex (`[Codex → Claude]`) แล้วตอนจบรอบจะแสดงจำนวน turns และค่าใช้จ่าย
 - **ดูความคืบหน้า:** `reports/loop-report.md`, `reports/jobs.md`, `reports/goal-status.md`, `progress.md`
   และสถานะ job ใช้ `pwsh -NoProfile -File auto-loop/tools/jobs.ps1`
+- **ดูเครดิต Claude/Codex:** `pwsh -NoProfile -File auto-loop/tools/credits.ps1` แสดงหลอดโควตา 5 ชม. และสัปดาห์ พร้อมเวลารีเซ็ต
+  เปิดหน้าต่างแยกที่อัปเดตทุก 60 วิ: `Start-Process pwsh '-NoProfile -File C:\RL_Fall\auto-loop\tools\credits.ps1 -Watch'`
+  (ค่า ณ การเรียกครั้งล่าสุดจาก log ไม่เรียก API) █ = ใช้ไป, ┃ = เวลาที่ผ่านไปของ window
 - **ย้อนกลับ:** ลูป commit ทุกรอบลง branch `loop/research` ให้ใช้ `git log` หา commit ที่ต้องการ แล้ว `git reset --hard <commit>`
 
 ## สิทธิ์ของ Claude ในลูป

@@ -324,3 +324,22 @@
   - FGU ดีแต่ damage ยังไม่ลด → ลอง anchor + RECOVERABLE_MAX 0.12 (wide ลด damage ได้มากที่สุด) หรือ anchor ที่ใช้เฉพาะ state ก่อนผลัก/ไม่กี่ step หลังผลัก
   - FGU กลับมาสูง → ลอง ANCHOR_EPOCHS=2
   - ติดมาหลายรอบแล้ว (5 รอบ) ถ้ายังไม่ผ่าน ให้ขอความเห็นที่สองจาก Codex อีกครั้ง (วิเคราะห์อย่างเดียว) เรื่อง trade-off FGU กับ damage
+
+### รอบ 2026-10-09 10:55
+- **job ที่จบ:** `20261009-074927-s2anc_ae1` ใช้ 3:04 ชม. (exit 0) anchor ANCHOR_EPOCHS=1 (manifest anchor_epochs=1 ✓)
+  update 200: รอดกลุ่มกู้ได้ 87.5 / 95.8 / 91.7% (S1 87.5 / 95.8 / 95.8), FGU 7.1 / 2.2 / 8.7%, damage กลุ่มกู้ไม่ได้ 0.00133 / 0.00175 / 0.00125
+  (S1 0.00187 / 0.00190 / 0.00143, ปล่อยตัว 0.00161) → 63001 และ 63003 ผ่านทุกเกณฑ์ ส่วน **63002 damage > ปล่อยตัว** → **M2 ไม่ผ่าน (ครั้งที่ 6) แต่ผ่าน 2/3 ซึ่งใกล้ที่สุดแล้ว**
+  63002 มี damage 0.0017–0.0018 ทุก checkpoint ส่วน anchor_kl หลัง anchor ~0.010–0.020 (ae5 ได้ ~0.002) บันทึกตาราง + ผลแยกตามแรงผลักลง Curriculum_Plan ส่วน 5 แล้ว
+- **ทำอะไร (ทำเอง):** ให้ `scripts/run_stage2_anchor.sh` รับ env `RECOVERABLE_MAX` (default 0.08 ผลเดิมไม่เปลี่ยน) เพื่อรวม anchor ae1 กับ wide U(0, 0.12)
+  เพราะ wide ลด damage ได้มากที่สุด (63002 ได้ 0.00116) ส่วน anchor ลด FGU ได้ (anchor ใช้ช่วง ≤0.12 ด้วย เพราะ anchor_max_impulse = max_push_impulse)
+- **Codex (ความเห็นที่สอง วิเคราะห์อย่างเดียว ไม่ได้แก้ไฟล์):** prompt อยู่ที่ `worklog/codex_task_s2_damage_analysis.md` และ log อยู่ที่ `auto-loop/.loop/codex/20261009-105715.log`
+  สรุปว่าไม่มี state จาก hard push หลุดเข้า anchor และพบ bug ที่ obs_rms อัปเดตไปแล้วก่อน callback แปลง obs กลับ (`train.py:207`)
+  ตรวจเองแล้วว่าผลแทบเป็นศูนย์ (obs_rms ของ S1 มี count ~3.3M) ทางแก้ที่จัดลำดับไว้: แก้ raw obs → KL อยู่ใน PPO objective → anchor เฉพาะช่วงก่อนผลัก + K step แรก
+- **verify:** ไม่ได้รัน เพราะแก้แค่ shell script (เพิ่ม default env) ไม่แตะ src/tests และไม่อยากแย่ง CPU กับ job ผลล่าสุด (10:55) คือ pytest ผ่าน, M1 PASS, M2–M4 FAIL
+- **job ที่สั่ง:** `20261009-105614-s2anc_wide` = `RECOVERABLE_MAX=0.12 ANCHOR_EPOCHS=1 bash scripts/run_stage2_anchor.sh 63001 63002 63003`
+  ผลออกที่ `results/stage2/seed_*/push_0.12_hard0.5_posture1.0_s2_dmg10000_anc1.0_ae1/` คาดว่าใช้ ~3 ชม.
+  (หมายเหตุ: `worklog/anchor_kl.py` ต้องรันด้วย path `/mnt/c/RL_Fall/worklog/...` เพราะ worklog ไม่ถูก copy ไป WSL และ glob ของมันจับ run push_0.12 ด้วย)
+- **งานถัดไป:** อ่าน s2_eval*.json ของ `push_0.12_..._anc1.0_ae1` (+ `s2_per_impulse.py`, `anchor_kl.py`) แล้วบันทึกลง Curriculum_Plan ส่วน 5
+  - ผ่านครบ 3 seeds ที่ update 200 → เขียน `auto-loop/milestones/m2_summary.json` (ชี้ไปที่ run นี้ทั้ง 3 seeds) แล้วแก้ตัวเลข S2 ใน M3 + เขียน m3_compute.json
+  - ไม่ผ่าน → ทำตามลำดับของ Codex: ย้าย KL เข้าไปใน PPO loss (ส่งให้ Codex เขียนพร้อม test และแก้ raw obs capture ไปด้วย)
+    หรือ anchor เฉพาะช่วงก่อนผลัก + K step แรก ห้ามเลือก checkpoint ที่ผลดีเอง ต้องใช้ update 200 ทุก seed

@@ -188,3 +188,60 @@ Verification: **all 60 tests passed** using the requested WSL command, including
 No changes to `auto-loop/` or `results/`, no long training, and no commits.
 
 log เต็ม: `auto-loop/.loop/codex/20261009-050946.log`
+
+## 2026-10-09 11:00:49  (exit 0, 212s)
+
+**Claude สั่ง:**
+
+````text
+Read the file worklog/codex_task_s2_damage_analysis.md and follow it exactly. Analysis only: do not modify, create or delete any file (you may only append notes to auto-loop/progress.md, but prefer not to). Never edit files under auto-loop/.
+````
+
+**Codex รัน:**
+
+````text
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "Get-Content -LiteralPath 'worklog/codex_task_s2_damage_analysis.md'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "rg -n \"RL_Fall|s2_damage|damage_analysis\" 'C:\\Users\\sstan\\.codex\\memories\\MEMORY.md'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "Get-Content -LiteralPath 'C:\\Users\\sstan\\.codex\\skills\\systematic-debugging\\SKILL.md'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "Get-Content -LiteralPath 'C:\\Users\\sstan\\.codex\\skills\\verification-before-completion\\SKILL.md'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "rg --files -g 'AGENTS.md' -g '*stage2*' -g '*anchor*' -g '*damage*' -g '*wide*' -g '*63002*'; rg -n \"AnchorSamplesCallback|anchor|push_impulse|fallen|damage|push_time|push_step\" src/rl_fall/train.py src/rl_fall/env3d.py scripts/stage2_eval.py scripts/run_stage2_anchor.sh scripts/run_stage2_pilot.sh" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command '$paths = @('"'src/rl_fall/train.py','src/rl_fall/env3d.py','scripts/run_stage2_pilot.sh','scripts/run_stage2_anchor.sh','tests/test_anchor.py','scripts/stage2_eval.py','worklog/codex_task_s2_damage_analysis.md'); foreach ("'$p in $paths) { $lines = Get-Content -LiteralPath $p; $ranges = switch ($p) { '"'src/rl_fall/train.py' { @(@(1,120),@(170,285),@(470,640)) }; 'src/rl_fall/env3d.py' { @(@(120,140),@(365,415),@(425,480),@(515,558),@(583,658),@(710,755)) }; 'scripts/stage2_eval.py' { @(@(1,170)) }; default { @(@(1,"'$lines.Count)) } }; foreach ($range in $ranges) { for($i=$range[0];$i -le [Math]::Min($range[1],$lines.Count);$i++) { '"'{0}:{1}: {2}' -f "'$p,$i,$lines[$i-1] } } }' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command 'foreach($p in @('"'scripts/run_stage2_pilot.sh','scripts/run_stage2_anchor.sh','tests/test_anchor.py','worklog/codex_task_s2_damage_analysis.md')) { "'$a=Get-Content -LiteralPath $p; for($i=1;$i -le $a.Count;$i++) { '"'{0}:{1}: {2}' -f "'$p,$i,$a[$i-1] } }' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command '$p='"'src/rl_fall/train.py'; "'$a=Get-Content -LiteralPath $p; foreach($i in (121..133 + 538..550 + 578..610)) { '"'{0}:{1}: {2}' -f "'$p,$i,$a[$i-1] }; $p='"'src/rl_fall/env3d.py'; "'$a=Get-Content -LiteralPath $p; foreach($i in (365..407)) { '"'{0}:{1}: {2}' -f "'$p,$i,$a[$i-1] }' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "rg --files -g 'AGENTS.md' -g '*summary*' -g '*updates*' -g '*manifest*' -g '*stage2*json' -g '*eval*json' -g 'pyvenv.cfg' -g '*requirements*' -g 'pyproject.toml'; rg -n \"63002|anchor_kl|ae1|0.00175|s2anc_wide\" worklog auto-loop/progress.md pyproject.toml" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "rg --files --hidden --no-ignore -g 'vec_normalize.py' -g 'on_policy_algorithm.py' -g 'policies.py' -g 'python.exe' -g 'pyvenv.cfg' -g 's2_eval*.json' -g 'updates.csv' -g 'manifest.json' | Select-Object -First 65; "'$p='"'tests/test_anchor.py';"'$a=Get-Content $p;foreach($i in (93..112)){ '"'{0}:{1}: {2}' -f "'$p,$i,$a[$i-1] }' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command 'Get-ChildItem -Force -Name; rg -n "stable-baselines|torch|numpy" requirements-lock.txt pyproject.toml; $p='"'scripts/run_stage1.sh';"'$a=Get-Content $p;for($i=1;$i -le $a.Count;$i++) { if($a[$i-1] -match '"'ANCHOR|anchor|max-push|INIT|RECOVERABLE') { '{0}:{1}: {2}' -f "'$p,$i,$a[$i-1] } }; $p='"'scripts/stage2_eval.py';"'$a=Get-Content $p;foreach($i in (20..101 + 104..142)){ '"'{0}:{1}: {2}' -f "'$p,$i,$a[$i-1] }' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "rg --files results/linux_wsl/stage2 | rg 'anc1.0_ae1.*(manifest.json|updates.csv|s2_eval.*json|train.py)"'$'"' | Select-Object -First 40; rg --files results/linux_wsl/stage2 | rg '(s2_eval.*json)"'$'"' | Select-Object -Last 20; Get-Content -LiteralPath 'worklog/anchor_kl.py'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command '$p='"'.venv/Lib/site-packages/stable_baselines3/common/on_policy_algorithm.py';"'$a=Get-Content -LiteralPath $p;foreach($i in (195..230)){ '"'{0}:{1}: {2}' -f "'$p,$i,$a[$i-1] };$p='"'.venv/Lib/site-packages/stable_baselines3/common/vec_env/vec_normalize.py';"'$a=Get-Content -LiteralPath $p;foreach($i in (176..196 + 215..249)){ '"'{0}:{1}: {2}' -f "'$p,$i,$a[$i-1] }; $p='"'src/rl_fall/train.py';"'$a=Get-Content $p;foreach($i in (288..320)){ '"'{0}:{1}: {2}' -f "'$p,$i,$a[$i-1] }' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "Get-ChildItem -LiteralPath results -Directory -Name; rg --files results | rg '(anc1.0_ae1|s2_dmg10000).*(manifest.json|updates.csv|s2_eval.*json|source_snapshot.src.rl_fall.train.py)"'$'"' | Select-Object -First 45; "'$p='"'.venv/Lib/site-packages/stable_baselines3/common/vec_env/vec_normalize.py';"'$a=Get-Content -LiteralPath $p;foreach($i in (180..193 + 214..221)){ '"'{0}:{1}: {2}' -f "'$p,$i,$a[$i-1] }' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command '$p='"'src/rl_fall/env3d.py';"'$a=Get-Content $p;foreach($i in (476..490)){ '"'{0}:{1}: {2}' -f "'$p,$i,$a[$i-1] };$p='"'src/rl_fall/train.py';"'$a=Get-Content $p;foreach($i in (619..632)){ '"'{0}:{1}: {2}' -f "'$p,$i,$a[$i-1] }; rg -n "anchor|damage|63002|wide|ae1" planning/Curriculum_Plan_TH.md | Select-Object -Last 40' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "@'
+````
+
+**Codex ตอบ:**
+
+1. **Hard-push episodes do not leak directly into the anchor set.** The impulse is sampled at reset, retained throughout the episode, and reported before and after the push. Thus episodes with impulses 0.15–0.25 fail the ≤0.08/≤0.12 filter even before impact. ([env3d.py:390](/C:/RL_Fall/src/rl_fall/env3d.py:390), [env3d.py:472](/C:/RL_Fall/src/rl_fall/env3d.py:472), [env3d.py:650](/C:/RL_Fall/src/rl_fall/env3d.py:650), [train.py:200](/C:/RL_Fall/src/rl_fall/train.py:200))
+
+   Using `previous_fallen` is appropriate because `obs_tensor` is the **pre-action** observation: the action first triggering a fall is included, while subsequent fallen states are excluded. This is deliberate, not hard-episode leakage. ([train.py:203](/C:/RL_Fall/src/rl_fall/train.py:203), [test_anchor.py:93](/C:/RL_Fall/tests/test_anchor.py:93), [SB3 rollout source](https://stable-baselines3.readthedocs.io/en/master/_modules/stable_baselines3/common/on_policy_algorithm.html))
+
+   **Indirect interference remains plausible:** recovery and protective falling use the same actor, and every PPO update is followed by optimization toward S1 on eligible states. Changes needed for hard-push behavior can therefore be undone through shared parameters. Seed 63002’s persistent damage plateau, versus its improvement without anchoring, supports this hypothesis but does not establish a seed-specific cause. ([train.py:281](/C:/RL_Fall/src/rl_fall/train.py:281), [train.py:596](/C:/RL_Fall/src/rl_fall/train.py:596), [task:21–24](/C:/RL_Fall/worklog/codex_task_s2_damage_analysis.md:21))
+
+2. **There is a concrete normalization bug.** The callback reconstructs raw observations from the old `obs_tensor` using the normalizer’s *current* statistics. However, `env.step()` has already updated those statistics before the callback executes. Clipping also makes inversion lossy. Consequently, S1 and S2 can be compared at different physical states. ([train.py:205–214](/C:/RL_Fall/src/rl_fall/train.py:205), [vec_normalize.py:181–193](/C:/RL_Fall/.venv/Lib/site-packages/stable_baselines3/common/vec_env/vec_normalize.py:181), [SB3 normalization source](https://stable-baselines3.readthedocs.io/en/master/_modules/stable_baselines3/common/vec_env/vec_normalize.html))
+
+   A read-only execution of the actual reconstruction expression reproduced this: physical observation 4, normalized using mean 0/std 2, reconstructs as 7 after statistics change to mean 1/std 3. The existing callback test keeps statistics fixed and therefore misses this timing error. Capture the actual pre-action raw observation and normalize it independently for S1. ([train.py:207](/C:/RL_Fall/src/rl_fall/train.py:207), [test_anchor.py:76–100](/C:/RL_Fall/tests/test_anchor.py:76))
+
+   A pre-push-plus-K-step window is sound **if impulse eligibility remains mandatory**; otherwise pre-push hard-episode states become newly anchored. It releases later recovery states, so recovery retention must still pass evaluation. Impulse weighting is also reasonable, but preserve meaningful weight around evaluated impulses 0.05/0.08. ([train.py:200](/C:/RL_Fall/src/rl_fall/train.py:200), [stage2_eval.py:24](/C:/RL_Fall/scripts/stage2_eval.py:24))
+
+3. **Ranked next changes if anchor+wide fails:**
+
+   - **First: correct raw-observation capture**, keeping other settings fixed. This is the strongest single next change because the normalization mismatch is demonstrable; its effect on seed 63002 remains unmeasured. ([train.py:205–214](/C:/RL_Fall/src/rl_fall/train.py:205))
+   - **Second: integrate KL into the PPO actor objective.** This would balance recovery retention against reward within one objective instead of applying a subsequent S1-directed phase. ([train.py:260–265](/C:/RL_Fall/src/rl_fall/train.py:260), [train.py:596–606](/C:/RL_Fall/src/rl_fall/train.py:596))
+   - **Third: time-limit eligible anchoring**, testing the K-window proposal above. ([train.py:200–203](/C:/RL_Fall/src/rl_fall/train.py:200))
+
+   **The damage threshold is plausibly reachable:** wide already beats passive and S1 on every seed. Joint success remains unproven because its FGU exceeds 10%. Preserve update 200 and all-three-seed gates. ([task:13–23](/C:/RL_Fall/worklog/codex_task_s2_damage_analysis.md:13))
+
+   One baseline clarification: “passive” uses zero action, which still drives a PD stance controller; it is not torque-free limp falling. ([stage2_eval.py:82](/C:/RL_Fall/scripts/stage2_eval.py:82), [env3d.py:476–490](/C:/RL_Fall/src/rl_fall/env3d.py:476))
+
+No files were changed.
+
+log เต็ม: `auto-loop/.loop/codex/20261009-105715.log`
