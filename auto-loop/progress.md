@@ -441,3 +441,53 @@
   เลือกการทดลองใหม่หนึ่งชิ้นจากขนาดpaired excessต่อSEและตำแหน่งรับแรง: หากชัดและมาจากtorsoพิจารณา time-window anchorหรือshaping
   ถ้าCIคร่อมศูนย์ให้รายงานไม่แน่นอนและเลือกการทดลองที่คาดเปลี่ยนพฤติกรรมชัดเจน ไม่ไล่ค่าcoefเพื่อให้scenarioเดิมผ่านโดยบังเอิญ
   ต้องกำหนด recipe/endpoint/update200/3seeds ก่อนเทรนครั้งใหม่ ไม่หยิบcheckpoint150ที่ผ่านมาแทน; M3ยังรอtransitions S2ถึงgateจริง
+
+### รอบ 2026-10-09 20:22
+- **ตัวนำ:** Codex; ตัวช่วย Claude ทำความเห็นที่สองและรีวิวสั้นแบบอ่านอย่างเดียว
+- **งานที่เลือก (M2, Codexทำเอง):** วิเคราะห์ frozen-policy diagnostic ที่จบ แล้วกำหนด/เปิดการทดลอง damage incentive ×2 หนึ่งชุด
+  ใช้ systematic-debugging, doc-coauthoring และ verification-before-completion; ปรับขั้นถาม/ยืนยันของskillsเป็นอ่านหลักฐานและตัดสินเอง
+  ตามคำสั่งไม่มีมนุษย์ตอบ ไม่ถามและไม่รอคำยืนยัน
+- **jobที่จบ:** `20261009-192213-s2joint_diag` ใช้ **47:16นาที** (2,836s), exit0, 3,456episodes
+  ตรวจprovenance final200/base19000/scale4/source hashes/checkpoint+RMS+manifest/episodes hashesตรงครบ3seeds
+  คำนวณsummary/paired SE+CI/controller statsใหม่จากepisodes.jsonแล้วตรงกับdiagnostic.jsonทุกค่า
+  ตรวจแถวตัวเลขหลักและCIในCurriculum_Planตรงกับไฟล์จริง; รายงาน `auto-loop/reports/s2joint_independent_diagnostic_20261009.txt`
+  easy S2/S1รอด=89.58/88.54,94.27/96.88,91.67/91.15%; FGU=7.06/5.91/7.43%
+  harddamage S2=.001488754/.001805675/.001395199 เทียบS1=.001617183/.002178019/.001711352 และpassive=.001951263ทุกseed
+  headsharehard=.000456/0/.001324%; hardfallsonly S2=.001504425/.001894479/.001432504
+  S2−passive mean/SE(×10^-3)=−.462510/.268215,−.145588/.254662,−.556064/.215700
+  CI63001/63002คร่อม0เทียบทั้งสองbaseline;63003CIติดลบทั้งสองbaseline แต่เป็นexploratory/ไม่รวมtraininguncertainty
+  63002torso88.03%ของS2damageและS2ยังสูงกว่าpassiveที่impulse.25; ไม่ยืนยันต้นเหตุหรือpowerจากCIนี้
+  **diagnostic_only=true/milestone_eligible=false: M2เดิมยังไม่ผ่าน2/3final200 ไม่เปลี่ยนverdictและไม่เขียนM2/M3milestone**
+  บันทึกผลครบและเวลาในplanning/Curriculum_Plan_TH.mdส่วน5 ไม่เปลี่ยนbody/proxy/evaluator/gate
+- **สมมติฐาน/เหตุผลที่เลือกเอง:** เพิ่มdamage_weight10000→20000เพื่อทดสอบแรงจูงใจลดdamageเดิม โดยคงjointKLcoef1และทุกค่าอื่น
+  ไม่ปรับanchorเพื่อพลิกmarginเล็กของscenarioเดิม; hardstatesถูกexcludedจากanchorอยู่แล้ว จึงยังไม่มีเหตุผลให้เปลี่ยนtime-window
+  ยังไม่แยกincentiveกับexposureที่.25ได้ ไม่อ้างว่าเป็นrootcauseพิสูจน์แล้ว; ความเสี่ยงคือFGU/value-scale/normalizerเปลี่ยน
+  เลือกrewardcoefficientตัวเดียวไม่เพิ่มshapingหรือเปลี่ยนthreshold; endpoint200ทั้ง3seedและtrend50/100/150กำหนดก่อนเปิดjob
+- **สิ่งที่เพิ่ม:** scripts/run_stage2_damage20k.sh ล็อก63001–63003และM1timestamp100414/112408/124330ของ8ต.ค.
+  teacher/initialใช้checkpoint.zipเดิมของjoint, baselineใช้update200, ไม่มีlatestM1; รับหนึ่งrunต่อstageเท่านั้น
+  preflightตรวจแหล่งผลจริงก่อนเทรนและพิมพ์hash; ตรวจeffectiveconfigurationและcheckpointหลังเทรนก่อนeval
+  resumeตรวจupdate0policy/RMSกับpinnedM1; existingevalตรวจprovenance/countsก่อนreuseไม่เขียนทับ
+  existingrunไม่มีresumecheckpointจะหยุดก่อนเทรนเพื่อไม่สร้างrunที่สอง; ไม่มีการแก้src/testsหรือrecipe10000เดิม
+- **Claudeความเห็นที่สอง/รีวิว:** tmp/claude_damage_second_opinion.md (44s) และ tmp/claude_damage_recipe_review.md (62s)
+  rawauto-loop/.loop/claude/20261009-201430.jsonl และ20261009-201926.jsonl; reportauto-loop/reports/claude-helper.md
+  ตรวจgitdiffและไฟล์ใหม่เองหลังhelperทุกครั้ง ไม่มีhelperแก้ไฟล์ ไม่รับข้อสรุปcoinflip/คูณSEgate2เท่าที่ไม่ได้วัด
+  รับข้อเสนอpinM1/newtagและแก้edgecaseไม่มีcheckpointตามreview; อีกทางเลือกเปลี่ยนharddistributionยังไม่ทำ
+- **verify:** รันpwsh -NoProfile -File auto-loop/verify.ps1สองครั้งหลังเพิ่มrecipe: **68testsผ่าน**, tests exit0
+  ล่าสุดgoal-status2026-10-09 20:20:57: M1PASS,M2–M4FAIL,goal exit1เพราะmilestoneยังไม่มี
+  bash-n,compilePythonheredocs,preflightWSLจริงทุกseed,checkschema/path/reuseกับmanifestjointเดิมทั้ง3,gitdiff--checkผ่าน
+  checkschemaใช้expected10000เฉพาะin-memoryกับbaseline10000 ไม่แก้recipeหรือไฟล์ผลใดๆ
+  หลักฐานrecipe `auto-loop/reports/s2damage20k_preflight_20261009.txt`; ไม่แก้ไฟล์ควบคุมลูปที่ห้ามแก้ ไม่commit/push/merge/LANTA
+- **jobที่สั่ง:** `20261009-202136-s2dmg20k` = `bash scripts/run_stage2_damage20k.sh` ผ่านwsl-job.ps1
+  คาด **4–4.5ชั่วโมง** อิงjoint10000จริง4:23:26; trainingทีละseedในjobเดียว3×200updates,finaleval+trend
+  jobs.ps1ยืนยันrunning; ตรวจPythonPID686กำลังเทรน63001ด้วย--damage-weight20000/--anchor-coef1/--anchor-modeobjective
+  และM1pinnedpathถูกต้อง ไม่มีlearnerอื่นรันพร้อมกัน (มี8workerของlearnerนี้); สร้างWAIT_FOR_JOBSแล้ว
+  output `results/stage2/seed_*/push_0.08_hard0.5_posture1.0_s2_dmg20000_anc1.0_objective/3d_*/s2_eval*.json`
+- **ปัญหา:** drypreflightครั้งแรกเรียกscriptจาก/mnt/cจึงcdไปWindowsที่ไม่มีWSLresults แก้โดยcopyrecipeแล้วเรียกใน~/RL_Fall
+  checkerinlineครั้งแรกติดPowerShellquoting แก้โดยใช้tmp/check_damage_recipe.py; ทั้งสองไม่ใช่บั๊กการเทรนและไม่ได้แก้ผลเก่า
+  ยังไม่มีหลักฐานM2ผ่านหรือเป็นไปไม่ได้ทางฟิสิกส์จึงไม่สร้างSTOP; ไม่ใช้ค่าสูง/ต่ำของdiagnosticแทนgate
+- **งานถัดไป:** สร้างauto-loop/WAIT_FOR_JOBSแล้วจบรอบ; เมื่อjobจบอ่านfinal200และtrendทั้ง3seedพร้อมjobs.mdบันทึกเวลาจริง/ทุกผล
+  ตรวจmanifestdamage20000/objective/rawobs/coef1/max.08/hardfraction.5/pinnedS1/update200; อ่านhard-survival/per-impulse/torso/FGU
+  เทียบreward_damage_penalty_sum/KL/early-stop/gradnormในupdates.csvกับjoint10000; rewardรวมข้ามน้ำหนักเทียบตรงๆไม่ได้
+  evaluatorเดิมไม่เก็บtime-to-fall ห้ามอ้างsoft-early-fallโดยไม่มีdiagnosticเพิ่มเติม
+  ผ่านเกณฑ์GOALทุกseedที่final200จริง→เขียนm2_summary.jsonชี้runชุดนี้ครบ3แล้วทำM3; ไม่ผ่าน→Claudeวิเคราะห์ก่อนเลือกการทดลองใหม่
+  ห้ามใช้checkpointtrendที่ดีแทนendpoint; แม้ผ่านmarginแคบต้องรายงานข้อจำกัดprecision/หลายrecipeและยังไม่อ้างกลยุทธ์ควรกู้/ควรล้มสำเร็จ

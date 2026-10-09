@@ -727,6 +727,84 @@ run timestamps ของ 63001/63002/63003 คือ `20261009T144426` / `202610
   Claude รีวิวไฟล์ใหม่/ผล diff แล้วไม่พบ blocker (raw `auto-loop/.loop/claude/20261009-191853.jsonl`)
   ข้อสังเกตเรื่อง CI/angle, multiple comparisons, descriptive tail และ per-fall subsets ถูกใส่ไว้ข้างบน
 
+**ผล frozen-policy diagnostic ชุดใหม่ (9 ต.ค. 2026, ไม่ใช่ gate):**
+
+- job `20261009-192213-s2joint_diag` จบ exit 0 ใช้ **47 นาที 16 วินาที** (2,836 วินาที จาก jobs.md/metadata)
+  ไม่มีการเทรนเพิ่ม ใช้ S2 joint coef1 และ S1 final200 ที่กำหนดไว้ครบทุก seed
+  reset base19000/scale4 มี 192 easy + 192 hard ต่อ policy ต่อ seed รวม 3,456 episodes
+  ตรวจ SHA256 ของ checkpoint/normalizer/manifest ทั้งสอง policy, evaluator/diagnostic source และ episodes.json
+  ตรงกับ provenance ทุก seed; flags diagnostic_only=true/milestone_eligible=false และ endpoint200 ถูกต้อง
+  ผลอยู่ที่ `results/stage2_diagnostics/joint_coef1_seedbase19000_scale4/seed_*/diagnostic.json`
+  รายการตัวเลขที่ดึงจากผลจริงและการตรวจ hash อยู่ที่ `auto-loop/reports/s2joint_independent_diagnostic_20261009.txt`
+
+| seed | รอด easy S2 / S1 (%) | false give-up (%) | hard damage S2 | hard damage S1 | hard damage passive | head share hard (%) |
+|---|---:|---:|---:|---:|---:|---:|
+| 63001 | 89.58 / 88.54 | 7.06 | 0.001488754 | 0.001617183 | 0.001951263 | 0.000456 |
+| 63002 | 94.27 / 96.88 | 5.91 | 0.001805675 | 0.002178019 | 0.001951263 | 0 |
+| 63003 | 91.67 / 91.15 | 7.43 | 0.001395199 | 0.001711352 | 0.001951263 | 0.001324 |
+
+ตาราง paired hard damage ด้านล่างใช้ **หน่วย 10⁻³** ทั้ง mean/SE/CI: ค่าลบหมายถึง S2 damage ต่ำกว่า baseline
+192 pairs / 64 reset-seed/angle clusters, bootstrap 10,000 ครั้งตามวิธีที่กำหนดก่อนรัน
+
+| seed | baseline | mean S2−baseline | cluster SE | bootstrap CI95 |
+|---|---|---:|---:|---|
+| 63001 | S1 | −0.128429 | 0.153892 | [−0.425542, +0.180572] |
+| 63001 | passive | −0.462510 | 0.268215 | [−0.977974, +0.054304] |
+| 63002 | S1 | −0.372344 | 0.272373 | [−0.923042, +0.144291] |
+| 63002 | passive | −0.145588 | 0.254662 | [−0.659166, +0.347638] |
+| 63003 | S1 | −0.316153 | 0.128494 | [−0.573220, −0.069274] |
+| 63003 | passive | −0.556064 | 0.215700 | [−0.987071, −0.141611] |
+
+- ค่าเฉลี่ย diagnostic ต่ำกว่าทั้งสอง baseline ทุก seed แต่ CI ของ 63001/63002 คร่อมศูนย์
+  จึงยังไม่ยืนยัน superiority ของสอง seed นี้ และไม่ใช่หลักฐานว่าเท่ากัน
+  การประเมินใหม่เปลี่ยนทั้ง reset seeds และความละเอียด angle grid ไม่ใช่ repeated sample ที่ตรึงทุก angle เดิม
+  passive mean ใหม่สูงกว่า gate เดิม (0.001951263 เทียบ 0.001606949) จึงไม่ใช้ความต่างของสองชุดเป็น causal policy effect
+  CI เป็น exploratory ไม่ปรับ multiple comparisons, resample seed กับ angle ร่วมกัน และไม่รวม training uncertainty
+  **M2 เดิมยังไม่ผ่าน (2/3 ที่ final200); diagnostic นี้ไม่ใช้เขียน m2_summary.json**
+
+| seed | hard ผู้ล้ม S2 / S1 / passive (จาก 192) | damage เฉพาะผู้ล้ม S2 / S1 / passive | torso share S2 (%) | S2 p95 / max damage |
+|---|---|---|---:|---|
+| 63001 | 190 / 192 / 192 | 0.001504425 / 0.001617183 / 0.001951263 | 78.67 | 0.004949760 / 0.014512255 |
+| 63002 | 183 / 184 / 192 | 0.001894479 / 0.002272716 / 0.001951263 | 88.03 | 0.005162325 / 0.010565434 |
+| 63003 | 187 / 189 / 192 | 0.001432504 / 0.001738517 / 0.001951263 | 90.44 | 0.003547662 / 0.006633987 |
+
+- ผู้รอด hard มี damage=0 ทุก policy/seed; falls-only ใช้ subset คนละชุดจึงไม่ใช่ paired causal comparison
+  สำหรับ 63002 ลำตัวถ่วงน้ำหนัก S2=0.001589491 > passive=0.001347162 แต่แขนรวม S2=0.000216184 < passive=0.000604102
+  torso delta S2−passive เฉลี่ย +0.000242330; เป็นบวก 51.04% ของ episodes และ top10% ของ episodes
+  คิดเป็น 43.43% ของ positive torso deltas จึงไม่ใช่ excess ที่มาจากเหตุการณ์เดียว
+  ที่ impulse0.15/0.20/0.25 S2 damage=0.001317025/0.001738122/0.002361879 เทียบ passive=0.001846308/0.002061252/0.001946230
+  จุด 0.25 จึงยังมีค่าเฉลี่ย S2 สูงกว่า passive แม้ค่าเฉลี่ย hard รวมต่ำกว่า; เป็น descriptive ไม่ใช่ CI ต่อ impulse
+  easy ที่0.08 S2/S1รอด=81.25/78.13,88.54/93.75,85.42/88.54% ตามลำดับ seed
+  ยังมีความเสี่ยงเสียการกู้หากเพิ่มต้นทุน damage ไม่อ้างว่าปัญหาเป็นไปไม่ได้ทางฟิสิกส์
+
+**การทดลองถัดไปที่กำหนดก่อนรัน: damage incentive ×2 (final200 ทั้งสาม seeds)**
+
+- สมมติฐาน: เพิ่มต้นทุน weighted damage จาก10,000เป็น20,000 อาจทำให้ policy ลดแรงรับที่ลำตัวบน hard pushes ได้มากขึ้น
+  โดย joint KL coef1 ช่วยรักษาการกู้ easy; หลักฐานมี torso share สูงและ S2ยังสูงกว่า passiveที่0.25ของ63002
+  แต่ยังไม่แยกได้ว่าเกิดจาก incentive ไม่พอหรือ exposure ที่ปลายช่วงแรงต่ำ จึงเป็นการทดสอบสมมติฐาน ไม่ใช่ยืนยันต้นเหตุ
+  เลือกเปลี่ยน reward coefficient ตัวเดียว ไม่ไล่ค่า anchor เพื่อพลิก margin ของ scenario เดิม
+  ตรวจ callback แล้ว hard episodes ไม่อยู่ใน anchor dataset ตั้งแต่ต้น การเปลี่ยน time-window anchor จึงไม่ปลด hard states โดยตรง
+- `bash scripts/run_stage2_damage20k.sh` ใช้63001–63003ต่อกันใน jobเดียว จาก M1 natural4_r2 ที่timestamp
+  20261008T100414/20261008T112408/20261008T124330 ตรงกับ parent joint experiment; ไม่มี latest selection ของ M1
+  recipeล็อก damage20000/objective anchor1.0/raw-obs, recoverable U(0,.08), hard U(.15,.25)ครึ่งหนึ่ง,
+  continuation2.5s, posturev4/weight1/CP10/natural stance, gamma.99และค่า PPO เดิม
+  เปลี่ยนเฉพาะน้ำหนัก reward ไม่เปลี่ยน engineering proxy, body, evaluator หรือเกณฑ์
+  rootใหม่ `results/stage2/seed_*/push_0.08_hard0.5_posture1.0_s2_dmg20000_anc1.0_objective/3d_*`
+  ยอมให้หนึ่ง runต่อstageเท่านั้นและตรวจ effective manifestก่อนeval
+  checkpointเริ่มต้น/teacherใช้ pinned `checkpoint.zip` และ baselineใช้ `checkpoint_update_200.zip` ตามเดิม
+- endpointหลัก=update200ทุกseed (3.2768M transitions/seed); gate48easy+48hard/policyเหมือนเดิม
+  ประเมิน50/100/150เป็นtrendเท่านั้น ห้ามหยิบมาแทนfinal; รายงานทุกseedไม่ว่าผ่านหรือไม่
+  เมื่อได้ผลให้ตรวจ hard survival, per-impulse/torso damage, easy survival/FGU และ reward_damage_penalty_sum
+  เทียบ joint10000จากupdates.csv; ค่าrewardรวมข้ามสองน้ำหนักเทียบตรงๆไม่ได้
+  evaluatorเดิมไม่ได้เก็บtime-to-fall จึงยังไม่มีหลักฐานว่าค่าdamageลดเพราะยอมล้มเร็ว; ถ้าจะอ้างต้องมีdiagnosticเพิ่ม
+- ความเสี่ยง: value scale/advantageและreward normalizerเปลี่ยน อาจเสียการกู้หรือยอมล้มเร็วเพื่อเลี่ยงimpact
+  ขนาดgate48มีข้อจำกัดด้านprecision; ผลผ่านmarginแคบไม่ใช่หลักฐาน superiorityที่มั่นคงหรือยืนยันกลยุทธ์ควรกู้/ควรล้ม
+  ยังไม่อ้างeffectsizeหรือpowerล่วงหน้า และไม่สร้างM3ก่อนS2ผ่านจริง
+- Claudeความเห็นที่สอง (44s, raw `auto-loop/.loop/claude/20261009-201430.jsonl`) สนับสนุนการทดลองนี้
+  ชี้ว่าห้ามใช้env overrideกับrun_stage2_objective.shที่hardcode10000 และต้องpinM1 จึงเพิ่มrecipeใหม่ตามนี้
+  ไม่รับการคูณSEของgateเป็น2เท่าหรือคำว่าcoin flipเป็นข้อสรุป เพราะangle/reset designต่างกันและไม่มีCIgateที่วัดจริง
+  ไม่ถือว่าS1เริ่มต้นเป็นสาเหตุที่พิสูจน์แล้ว แม้63002 S1 meanสูงกว่าpassive; ไม่มีhelperแก้ไฟล์
+
 นิยาม "กู้ได้" เทียบกับ controller ที่ระบุชัด (policy S1) ไม่ใช่ค่าสัมบูรณ์
 ตามข้อสังเกตในงาน Learning to Predict Humanoid Fall (2011) ที่อ้างไว้ใน prior-art review
 

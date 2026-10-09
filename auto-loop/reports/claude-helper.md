@@ -218,3 +218,93 @@ Check pairing/cluster SE/CI correctness, fixed input paths, safe reuse behavior 
 The plan wording ("diagnostic only", no M2 replacement, no claim about uncertainty across training) is accurate. It also correctly separates checkpoint-to-checkpoint swings from evaluation SE.
 
 event ดิบ: `auto-loop/.loop/claude/20261009-191853.jsonl`
+
+## 2026-10-09 20:15:14  (exit 0, 44s, $0.20, 4 turns)
+
+**Codex สั่ง:**
+
+``text
+You are Claude, short analysis-only helper for Codex in C:\RL_Fall. No human responds. Do not edit any files, do not launch jobs or another agent. Never edit auto-loop/ (except progress.md is generally permitted, but no edits for this task). No commit/push/merge.
+
+M1 passes. M2 joint PPO loss + KL(S1||S2) coef1 at update200 failed on seed63002 hard damage vs passive; final200 is predeclared gate, checkpoint150 all passes but cannot be substituted. Eight earlier attempts failed. Task: give a concise second opinion on the NEXT SINGLE experiment based on independent frozen-policy diagnostic. Read ONLY src/rl_fall/env3d.py lines580-647, src/rl_fall/train.py lines228-272, scripts/run_stage2_objective.sh, and auto-loop/reports/s2joint_independent_diagnostic_20261009.txt if needed. Do not read the whole project.
+
+Original gate (48easy+48hard): joint coef1 seeds63001/2/3 easy survival87.5/95.8/93.8%, S1 87.5/95.8/95.8; FGU7.1/4.3/6.5%; hard damage .001088945/.001682237/.001292352, passive .001606949 all. Seed63002 excess4.69%, torso93.65%.
+Independent diagnostic base19000 scale4: 192easy+192hard each policy each seed; 64 hard reset-seed/angle clusters reused across impulses. Joint final200 frozen (no training). Means S2/S1/passive hard:
+63001 .001488754/.001617183/.001951263
+63002 .001805675/.002178019/.001951263
+63003 .001395199/.001711352/.001951263.
+S2-passive deltas/SE/CI95:
+63001 -.000462510/.000268215/[-.000977974,+.000054304]
+63002 -.000145588/.000254662/[-.000659166,+.000347638]
+63003 -.000556064/.000215700/[-.000987071,-.000141611].
+S2-S1 CIs63001/2 cross zero,63003 entirelynegative. Exploratory bootstrap10k, fixed angle grid clusters, not training uncertainty, no multiplicity correction. Diagnostic never replaces gate.
+Easy S2/S1 89.58/88.54,94.27/96.875,91.67/91.15%; FGU7.06/5.91/7.43%.
+63002 hard torso S2 .00158949 vs passive .00134716 but arms S2 .00021618 vs passive .00060410; torso excess spread51%episodes,top10%takes43.4%positive torso deltas. At .25 S2 damage .00236188 vs passive .00194623; at .15/.20 S2 lower. S2fall-only .00189448 vs passive .00195126 (different subsets, not paired causal).
+Existing anchor excludes hard episodes and fallen states, so a late-window anchor change would not directly free hard samples. Anchor coef sweep legacy showed no monotone improvement for63002. Proposal: ONE new run from explicit same M1 checkpoints each seed, increase damage reward coefficient10000->20000, keep objective coef1, recoverable max.08, hard.15-.25 half, all other settings and gate unchanged; final200 all3, trend50/100/150 only diagnostic. Reason: high hard torso damage and modest benefit, double cost on same measured engineering proxy to test whether stronger damage incentive changes behavior; not established cause or promised improvement. No geometric/damage-threshold/evaluator modifications. Risk: FGU deterioration due value/advantage changes; report even if fails. Prefer this over tuning coef just to flip tiny gate margin. Another possibility is longer horizon/gamma to improve credit assignment, but currently not enough time-resolved evidence. Check whether proposal is logically defensible; identify blocker or strongest alternative if clear. Finish in <500words; verify by evidence/code, no edits.
+
+``
+
+**Claude ตอบ:**
+
+I did not edit any files or start any jobs. I skipped the plan-and-report skill because it would have written files.
+
+## Verdict: the run is defensible, with two blockers to fix first and one caveat to state up front
+
+**What the code supports**
+- `env3d.py:626-628`: the damage penalty is `damage_weight * (S2_DAMAGE_WEIGHTS @ increment)`, charged every step, including after a fall during `fall_continue_s` (`env3d.py:633-639`). The survival reward drops to 0 once fallen (`env3d.py:600`). Doubling the weight therefore pushes against damage in both the standing and the falling phase. It changes only the reward, not the geometry, thresholds or evaluator, so it stays inside your constraints.
+- `train.py:247-250`: the KL anchor covers only states with impulse ≤ `max_impulse` that were not already fallen. Hard episodes get no pull toward S1, so a stronger damage incentive acts mainly on hard behaviour. Easy states stay anchored at coef 1. This limits the FGU risk you named but does not remove it, because the damage term also changes the advantages on easy states.
+- If advantages are normalised per batch (PPO default; I didn't verify in this repo), 20000 changes how damage is weighed against survival inside the advantage, not the step size. The value-loss scale does grow, though.
+
+**Blockers to fix before launching**
+1. `scripts/run_stage2_objective.sh:8` hardcodes `DAMAGE_W=10000`, and the tag on line 11 contains `dmg10000`. Setting an env var will not override it. You need a new script with `DAMAGE_W=20000` and a new tag, so the existing artifacts are not overwritten. Keep `ANCHOR=1.0` and `ANCHOR_MODE=objective`.
+2. "Explicit same M1 checkpoints" is resolved inside `run_stage2_pilot.sh`, which I did not read. Check that the paths are pinned there and not pulled from a "latest" pointer.
+
+**Caveat to state before the run**
+- **Power on 63002:** the diagnostic's S2−passive SE is about .000255 with 192 hard episodes per policy. The gate uses 48, so its SE should be roughly double (about .0005), and the diagnostic gap is only −.000146. The gate result for 63002 is close to a coin flip unless doubling the damage weight reduces hard damage by roughly .0005–.0008 on its own, which is about 25–40% of the current mean. Say this before launching, so a narrow pass or fail is not over-read.
+- **The 63002 problem is inherited from M1:** for 63002, S1 itself is worse than passive (.002178 vs .001951). S2 already improves on S1 by about 17%. The gap comes from a bad starting point plus the .25 tail. A stronger damage incentive is a reasonable lever for that, and more so than anchor tuning (which leaves hard states alone) or a coef change that only nudges the margin.
+
+**Risks to log, not blockers**
+- Larger fall-phase damage costs could teach a "fall softly early" strategy on borderline hard pushes. Report the hard fall rate and time-to-fall next to damage, and easy survival/FGU per seed as already planned.
+- Log how the reward splits between damage and survival before and after the change, so a failure can be attributed.
+
+**Alternatives**
+- **Longer horizon / gamma:** I agree there isn't enough time-resolved evidence for it yet. It would also change the value scale and the credit assignment at once, which makes a failure harder to read than a single coefficient change.
+- **Stronger alternative, only if you want a cleaner causal test:** shift the hard training distribution toward the .25 tail, where S2 loses (.00236 vs .00195). That changes how often hard pushes are sampled during training, not the gate distribution. It is a sampling change rather than an incentive change, and I would not run both at once. Since the diagnostic does not separate "too little incentive" from "too little tail exposure", either single change is justified. The damage-weight run is the smaller and more interpretable one, so I back it as the next single experiment.
+
+**Bottom line:** go ahead with DAMAGE_W=20000 as one run. Use a new script and tag, pinned M1 checkpoints, final200 as the gate on all three seeds, and 50/100/150 as diagnostics only. Note in writing beforehand that the 48-episode gate has limited power for 63002, and report the result whether it passes or fails.
+
+event ดิบ: `auto-loop/.loop/claude/20261009-201430.jsonl`
+
+## 2026-10-09 20:20:28  (exit 0, 62s, $0.42, 9 turns)
+
+**Codex สั่ง:**
+
+``text
+Short read-only review for Codex in C:\RL_Fall. No human present. Do not edit any files; do not run training/jobs/agents; do not commit/push. Never edit auto-loop/ (except progress.md generally allowed, but NO edits now).
+Review ONLY scripts/run_stage2_damage20k.sh and planning/Curriculum_Plan_TH.md lines730-812 plus git diff for these files. New script may be untracked so read it directly. Check pinned S1 paths (timestamps63001=20261008T100414,63002=20261008T112408,63003=20261008T124330), damage20000/coef1 objective and all3 final200, one training sequential, safe old result reuse and resume handling. Parent scripts/run_stage1.sh takes DAMAGE_W/ANCHOR env and selects latest run in its stage, but new recipe requires <=1 stage run before training and exactly1 after. run_stage1 resumes latest saved checkpoint and train manifest init_checkpoint then points to resume path (new recipe checks update0 policy/RMS against pinned M1 if resumed). run_stage1 defaults/env LR/LOG_STD/ANCHOR_EPOCHS are explicitly cleared. Existing scripts/run_stage2_objective.sh is NOT changed (hardcode10000 untouched).
+Doc diagnostic data: harddamageS2/S1/passive seeds63001=.001488754/.001617183/.001951263;63002=.001805675/.002178019/.001951263;63003=.001395199/.001711352/.001951263. Easy S2/S1=89.5833/88.5417,94.2708/96.875,91.6667/91.1458%;FGU7.0588/5.9140/7.4286%. Paired hard CIs for63001/2cross0,63003negative, diagnostic never eligible for milestone. Job47m16s. Do not reiterate unmeasured power estimates/coinflip or claim startingS1 causally explains failure. Mention any actual blocker or incorrect conclusion, <300words. Completion check: read script+diff and explain if the declared experiment is wired correctly, without file changes.
+
+``
+
+**Claude ตอบ:**
+
+**Verdict: no blocker.** The declared experiment is wired correctly. I edited nothing and ran no jobs.
+
+**Script (`scripts/run_stage2_damage20k.sh`)**
+- **Pinned S1 runs:** the three timestamps are hardcoded for each seed (lines 8 and 14). Nothing picks "the latest M1 run". Before any training, the script checks that each S1 run is complete, seed-matched, 200 updates, v1_0 and posture v4/natural, and that it has `checkpoint.zip` and `checkpoint_update_200.zip`. It prints SHA256 hashes but doesn't compare them to known values; the paths alone do the pinning.
+- **Damage 20000 / coef 1:** the environment matches the parent pilot except that `DAMAGE_W` is 20000 and `LR`, `LOG_STD` and `ANCHOR_EPOCHS` are set to empty. `run_stage1.sh` only uses those when they are non-empty (`-n` tests, lines 48–51 and 67), so the defaults apply. The tag `s2_dmg20000_anc1.0_objective` follows the same naming pattern as the parent. After training, the manifest check confirms the real settings (damage, anchor, ranges, no LR/log-std override).
+- **Sequential, all seeds:** the seeds train one after another. `set -e` stops the job if the command-substitution check fails. Each seed is evaluated at 200 (written to `s2_eval.json`), then at 50, 100 and 150 as trend files.
+- **Run count:** at most one run per stage before training, exactly one after. One edge case: an interrupted run with no `checkpoint_update_*` makes `run_stage1.sh` start a second run. The script then aborts after training. That wastes compute but never gives a wrong result.
+- **Resume:** handled correctly. When a run resumes, `init_checkpoint` points at the resume path, so the script instead compares the update-0 policy and observation normalizer against the pinned S1.
+- **Reusing old results:** an existing eval is reused only if its script, both run paths, both update numbers, `after_s=2.5` and 48/48 episodes all match. Any bad file aborts the run.
+- `scripts/run_stage2_objective.sh` is unchanged (still hardcodes 10000).
+
+**Could not verify from here:** the pinned S1 folders aren't in this Windows checkout; results appear to live in WSL. If a path is wrong, the pre-check stops the run before training.
+
+**Doc (lines 730–812)**
+- All the numbers match the figures you gave: easy survival S2/S1, false give-up, hard damage for S2/S1/passive, and 47m16s (2,836 s). 3.2768M transitions = 200 × 16,384.
+- The CI reading is correct: 63001/63002 cross zero, 63003 is fully negative, and the diagnostic is marked as never counting toward the milestone, with M2 still not passed.
+- It doesn't claim power or effect size, doesn't call the result a coin flip, and says the starting S1 is not proven to be the cause.
+- No incorrect conclusions found.
+
+event ดิบ: `auto-loop/.loop/claude/20261009-201926.jsonl`
