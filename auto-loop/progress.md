@@ -306,3 +306,21 @@
   - ผ่านครบ 3 seeds ที่ update 200 → เขียน `auto-loop/milestones/m2_summary.json` แล้วแก้ตัวเลข S2 ในเอกสาร M3 และเขียน m3_compute.json
   - FGU ลดลงแต่ยังไม่ผ่าน → ลองเพิ่ม ANCHOR (เช่น 3.0) หรือ anchor + RECOVERABLE_MAX 0.12
   - ไม่ช่วยเลย → ถือว่าติดมาหลายรอบแล้ว ให้บันทึกหลักฐานและพิจารณาว่าเกณฑ์ FGU ≤10% เป็นไปได้หรือไม่ (noise floor ~4.8%, สูงสุด 11.9%)
+
+### รอบ 2026-10-09 07:47
+- **job ที่จบ:** `20261009-051654-s2anchor` ใช้ 2:29 ชม. (exit 0) KL anchor ไปที่ S1 (ANCHOR=1.0, 5 epochs)
+  update 200: รอดกลุ่มกู้ได้ 95.8 / 93.8 / 91.7% (S1 87.5 / 95.8 / 95.8%), FGU 0.0 / 2.2 / 8.7% → ผ่านเกณฑ์รอดและ FGU ทุก seed (ครั้งแรก)
+  แต่ damage กลุ่มกู้ไม่ได้ 0.00176 / 0.00164 / 0.00153 (S1 0.00187 / 0.00190 / 0.00143, ปล่อยตัว 0.00161) → 63001/63002 > ปล่อยตัว, 63003 > S1
+  → **M2 ไม่ผ่าน (ครั้งที่ 5) ตอนนี้ติดที่เกณฑ์ damage** trend: FGU ≤13% ทุก checkpoint แต่ damage ไม่ลดเลย บันทึกตารางลง Curriculum_Plan ส่วน 5 แล้ว
+- **วิเคราะห์ (ทำเอง):** `worklog/anchor_kl.py` พบว่า PPO ดัน KL ไป ~0.025 แล้ว anchor ดึงกลับเหลือ ~0.002–0.003 ทุก update (anchor แรงเกินไป)
+  anchor เป็น phase แยกที่ใช้ Adam ซึ่งไม่ขึ้นกับ scale ของ loss จึงลด coef แทบไม่มีผล ตัวคุมความแรงจริงคือจำนวน epoch
+- **แก้ (ทำเอง):** `train.py` เพิ่ม `--anchor-epochs` (ค่าเริ่มต้น = n_epochs 5 ผลเดิมไม่เปลี่ยน, บันทึกลง manifest),
+  env `ANCHOR_EPOCHS` ใน `run_stage1.sh`/`run_stage2_pilot.sh`/`run_stage2_anchor.sh` (tag `_ae<N>`), และเพิ่ม assert ใน `tests/test_anchor.py`
+- **verify:** pytest ผ่าน, M1 PASS, M2–M4 FAIL
+- **job ที่สั่ง:** `20261009-074927-s2anc_ae1` = `ANCHOR_EPOCHS=1 bash scripts/run_stage2_anchor.sh 63001 63002 63003`
+  ผลออกที่ `results/stage2/seed_*/push_0.08_hard0.5_posture1.0_s2_dmg10000_anc1.0_ae1/` คาดว่าใช้ ~2.5 ชม.
+- **งานถัดไป:** อ่าน s2_eval*.json ของ `anc1.0_ae1` (+ `worklog/anchor_kl.py s2_dmg10000_anc1.0_ae1` ตรวจว่า manifest มี anchor_epochs=1)
+  - ผ่านครบ 3 seeds ที่ update 200 → เขียน `auto-loop/milestones/m2_summary.json` แล้วแก้ตัวเลข S2 ในเอกสาร M3 + เขียน m3_compute.json
+  - FGU ดีแต่ damage ยังไม่ลด → ลอง anchor + RECOVERABLE_MAX 0.12 (wide ลด damage ได้มากที่สุด) หรือ anchor ที่ใช้เฉพาะ state ก่อนผลัก/ไม่กี่ step หลังผลัก
+  - FGU กลับมาสูง → ลอง ANCHOR_EPOCHS=2
+  - ติดมาหลายรอบแล้ว (5 รอบ) ถ้ายังไม่ผ่าน ให้ขอความเห็นที่สองจาก Codex อีกครั้ง (วิเคราะห์อย่างเดียว) เรื่อง trade-off FGU กับ damage

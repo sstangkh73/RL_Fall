@@ -430,8 +430,10 @@ def run_training(
     fall_continue_s: float = 0.0, damage_weight: float = 0.0,
     critic_warmup_updates: int = 0, learning_rate: float | None = None,
     anchor_coef: float = 0.0, anchor_checkpoint: Path | None = None,
-    anchor_max_impulse: float | None = None,
+    anchor_max_impulse: float | None = None, anchor_epochs: int | None = None,
 ) -> dict[str, object]:
+    if anchor_epochs is None:
+        anchor_epochs = CURRICULUM_PPO["n_epochs"]
     if anchor_coef > 0 and anchor_checkpoint is None:
         raise ValueError("anchor_checkpoint is required when anchor_coef > 0")
     if environment not in ("planar", "3d"):
@@ -601,7 +603,7 @@ def run_training(
                     if len(update_rows) >= critic_warmup_updates:
                         anchor_kl_before, anchor_kl_after = anchor_step(
                             model, anchor_model.policy, obs_s2, obs_anchor, anchor_coef,
-                            CURRICULUM_PPO["n_epochs"], CURRICULUM_PPO["batch_size"],
+                            anchor_epochs, CURRICULUM_PPO["batch_size"],
                         )
                 synchronize(device)
                 elapsed = time.perf_counter() - begin
@@ -699,6 +701,7 @@ def run_training(
             "anchor_checkpoint": str(anchor_checkpoint) if anchor_checkpoint else None,
             "anchor_max_impulse": (max_push_impulse if anchor_max_impulse is None
                                    else anchor_max_impulse),
+            "anchor_epochs": anchor_epochs,
             "gamma": gamma, "norm_reward": norm_reward,
             "init_checkpoint": str(init_checkpoint) if init_checkpoint else None,
             "resumed_from_update": resumed_from, "log_std_override": log_std,
@@ -792,6 +795,9 @@ def main() -> None:
                         help="explicit S1 checkpoint, required when --anchor-coef > 0")
     parser.add_argument("--anchor-max-impulse", type=float, default=None,
                         help="largest impulse eligible for anchoring (default max-push-impulse)")
+    parser.add_argument("--anchor-epochs", type=int, default=None,
+                        help="KL anchor passes over the samples after each PPO update "
+                             "(default PPO n_epochs); Adam makes this, not the coef, the strength knob")
     args = parser.parse_args()
     wrapper = args.wrapper or ("dummy" if args.n_envs == 1 else "subproc")
     result = run_training(args.output, args.device, args.condition, args.seed,
@@ -806,7 +812,8 @@ def main() -> None:
                           tuple(args.hard_push_range) if args.hard_push_range else None,
                           args.fall_continue_s, args.damage_weight,
                           args.critic_warmup_updates, args.learning_rate,
-                          args.anchor_coef, args.anchor_checkpoint, args.anchor_max_impulse)
+                          args.anchor_coef, args.anchor_checkpoint, args.anchor_max_impulse,
+                          args.anchor_epochs)
     print(json.dumps(result, indent=2, sort_keys=True))
 
 

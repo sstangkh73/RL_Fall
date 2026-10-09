@@ -172,7 +172,10 @@ def test_training_logs_anchor_skips_critic_warmup_and_keeps_s1_on_resume(tmp_pat
         assert all(torch.equal(value, frozen.policy.state_dict()[key])
                    for key, value in policy.state_dict().items())
         calls.append(len(args[0]))
+        epochs.append(args[3])
         return real_step(model, policy, *args)
+
+    epochs = []
 
     monkeypatch.setattr(train, "anchor_step", tracked_step)
     result = train.run_training(
@@ -192,9 +195,12 @@ def test_training_logs_anchor_skips_critic_warmup_and_keeps_s1_on_resume(tmp_pat
     resumed = train.run_training(
         tmp_path / "run", measured_updates=3, resume_dir=run_dir,
         critic_warmup_updates=1, anchor_coef=1.0, anchor_checkpoint=checkpoint,
-        max_push_impulse=0.08, anchor_max_impulse=0.07, **common,
+        max_push_impulse=0.08, anchor_max_impulse=0.07, anchor_epochs=1, **common,
     )
     assert len(calls) == 2
+    assert epochs == [train.CURRICULUM_PPO["n_epochs"], 1]
+    assert result["anchor_epochs"] == train.CURRICULUM_PPO["n_epochs"]
+    assert resumed["anchor_epochs"] == 1
     assert resumed["anchor_checkpoint"] == str(checkpoint)
     assert resumed["anchor_coef"] == 1.0
     assert result["anchor_max_impulse"] == 0.08
