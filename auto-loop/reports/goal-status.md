@@ -1,4 +1,4 @@
-# Goal status (2026-10-10 16:26:35)
+# Goal status (2026-10-10 16:37:28)
 
 ## PASS — M1 — S1 gate (natural stance + reactive survival, 3 seeds)
 - mean survival at 0.10 = 62%
@@ -11,8 +11,8 @@
 - seed 63002: recoverable S2 97% vs S1 97%; damage S2 0.00167 / S1 0.00209 / passive 0.00192; false give-up 3%; head share 0%
 - seed 63003: recoverable S2 89% vs S1 85%; damage S2 0.00158 / S1 0.00174 / passive 0.00192; false give-up 10%; head share 0%
 
-## FAIL — M3 — LANTA compute estimate + Slurm script
-- ✗ m3_compute.json not found: /mnt/c/RL_Fall/auto-loop/milestones/m3_compute.json
+## PASS — M3 — LANTA compute estimate + Slurm script
+- node_hours = 18
 
 ## FAIL — M4 — evidence summary for advisor / LANTA
 - ✗ planning/Evidence_Summary_TH.md not found

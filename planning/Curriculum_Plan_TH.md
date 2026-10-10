@@ -937,10 +937,23 @@ run timestamps ของ 63001/63002/63003 คือ `20261009T144426` / `202610
 - เครื่องนี้ (CPU 8 envs) ได้ ~2,400 t/s ≈ 8.6M transitions ต่อชั่วโมง
 - หลังผ่าน S1 และ S2 จะได้ "transitions ถึง gate" ของแต่ละขั้น แล้วคำนวณ
   node-hours = transitions × seeds × จำนวน config (ablation/λ) ÷ throughput ต่อ node × 1.3 (buffer)
-- LANTA CPU node (128 cores) วางได้ราว 12 runs พร้อมกัน (run ละ 8 envs + learner)
-  (8 ต.ค.: ลดเหลือ 10 runs ต่อ node เพราะถ้า thread เกินจำนวน core จะช้าลงหลายเท่า ร่างตัวเลขอยู่ใน
-  `planning/LANTA_Compute_Estimate_TH.md` ได้ ~31 node-hours ถ้า S2 ใช้ 400 updates ส่วน sbatch อยู่ใน `scripts/lanta/`)
+- LANTA CPU node (128 cores) วางได้ราว 10 runs พร้อมกัน (run ละ 8 envs + learner)
+  โดยต้องวัด throughput จริงก่อน submit; รายละเอียดตัวเลขฐาน 18 node-hours และสูตรอยู่ใน
+  `planning/LANTA_Compute_Estimate_TH.md` ส่วน sbatch อยู่ใน `scripts/lanta/`
 - **ขอโควตาใหญ่หลังได้ตัวเลข S1/S2 แล้วเท่านั้น** ระหว่างนี้ใช้ benchmark เป็นหลักฐานว่าควรขอ CPU node
+
+**ผล M3 หลัง M1/M2 ผ่าน (10 ต.ค. 2026):** endpoint จริงให้ S1 = 1,050 updates/seed =
+17,203,200 transitions และ S2 = 200 updates/seed = 3,276,800 transitions ที่ 16,384 transitions/update
+(8 envs x 2,048 steps). throughput WSL ของ S1 อยู่ที่ 1,931/1,945/1,948 t/s และ S2 อยู่ที่
+1,229/1,243/1,180 t/s สำหรับ seeds 63001/63002/63003 ตาม manifest ของ run ที่อ้างใน milestone
+M1/M2; job S2 `20261010-120730-s2hardnob` ใช้ 4:11:18 ชม. ตาม `auto-loop/reports/jobs.md`.
+
+สำหรับขอบเขตงานเต็ม 56 training runs (S1 5, S2 24, S3 27) และ evaluation overhead 10%,
+ใช้ throughput ต่อ LANTA 12,000 t/s เป็น **สมมติฐานที่ยังไม่ได้วัด** แล้วคูณ buffer 1.3 ได้
+18 node-hours (ปัดขึ้นจาก 17.17). S3 13,107,200 transitions/seed เป็นเพดานวางแผนจาก 800 updates
+เท่านั้น ไม่ใช่ผลผ่าน gate. เนื่องจาก throughput LANTA และ S3 ยังไม่ทราบ จึงเสนอขอ 100 node-hours
+สำหรับรอบแรก; รายละเอียดและสูตรอยู่ใน `planning/LANTA_Compute_Estimate_TH.md` และ milestone
+`auto-loop/milestones/m3_compute.json`.
 
 ## 8. รายการแก้โค้ด
 

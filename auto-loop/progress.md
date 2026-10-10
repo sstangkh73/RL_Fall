@@ -559,3 +559,14 @@
 - **ปัญหา:** ไม่มี blocker ทางฟิสิกส์หรือ provenance; FGU seed 63003 อยู่ใกล้ขอบ 10% (9.76%) จึงต้องรายงานตามจริง
 - **งานถัดไป:** M3 — อ่าน compute/throughput จากผลที่ผ่านจริงและไฟล์ Slurm ที่มีอยู่, สร้าง `planning/LANTA_Compute_Estimate_TH.md`
   กับ `auto-loop/milestones/m3_compute.json` ให้ตัวเลขและ script ตรงกัน แล้ว verify ก่อนเริ่ม M4
+
+### รอบ 2026-10-10 16:35
+- **ตัวนำ:** Codex; งาน M3 ทำโดย Codex. ใช้ `doc-coauthoring` เพื่อจัดโครงเอกสารประมาณการและ `verification-before-completion` เพื่อตรวจหลักฐานก่อนสรุปผล
+- **ทำอะไร:** อ่าน manifest ของ M1 `natural4_r2` และ M2 `objective_hardnobonus` ทั้ง 3 seeds จาก WSL, ตรวจ recipe/Slurm scripts และ checker ของ milestone; แก้ `planning/LANTA_Compute_Estimate_TH.md`, เพิ่ม `auto-loop/milestones/m3_compute.json`, และบันทึกผล M3 ต่อท้ายส่วน compute ใน `planning/Curriculum_Plan_TH.md`
+- **ใครทำ:** Codex เขียนและตรวจ diff เอง; ส่งรีวิวสั้นให้ Claude แบบอ่านอย่างเดียว แต่คำสั่งจบระหว่างตรวจและไม่มีผลรีวิวที่ใช้งานได้ จึงไม่ถือเป็นหลักฐานและไม่ปล่อยให้แก้ไฟล์
+- **job ที่สั่ง:** ไม่มี job ใหม่; ไม่มีงาน train/eval ค้าง. ใช้ผล job เดิม `20261010-120730-s2hardnob` ซึ่งจบไปแล้ว 4:11:18 ชม. เป็น input ของ M3
+- **job ที่จบ:** ไม่มีใหม่ในรอบนี้; ตัวเลขที่ใช้จาก manifestจริงคือ S1 1,050 updates/seed = 17,203,200 transitions, S2 200 updates/seed = 3,276,800 transitions และ throughput WSL S1 1,931/1,945/1,948 กับ S2 1,229/1,243/1,180 t/s
+- **ผล verify:** JSON/schema และสูตรผ่าน; `git diff --check` ผ่าน; `pwsh -NoProfile -File auto-loop/verify.ps1` — pytest ผ่านทั้งหมด, M1 PASS, M2 PASS, **M3 PASS (node_hours=18)**, M4 FAIL เพราะยังไม่มี `planning/Evidence_Summary_TH.md`
+- **verify follow-up หลังรับรีวิว:** รัน `pwsh -NoProfile -File auto-loop/verify.ps1` สดอีกครั้งหลังแก้ถ้อยคำ/ตัวเลข — pytest ผ่านทั้งหมด, M1 PASS, M2 PASS, **M3 PASS (node_hours=18)**, M4 ยัง FAIL เฉพาะไฟล์ Evidence Summary ที่ยังไม่มี
+- **ปัญหา:** throughput 12,000 t/s ต่อ LANTA ยังเป็น planning assumption เพราะยัง submit/วัดบน LANTA ไม่ได้; S3 800 updates เป็น planning assumption ไม่ใช่ผลทดลอง. Claude review ตรวจแล้วและแก้ถ้อยคำเรื่องความอนุรักษ์นิยม/upper bound, กรณี throughput ครึ่งหนึ่ง และข้อความ M3 เดิมให้สอดคล้อง
+- **งานถัดไป:** M4 — สร้าง `planning/Evidence_Summary_TH.md` ไม่เกิน 16,000 ตัวอักษร ให้ตัวเลข 3 seeds ตรงกับ M1/M2, ระบุ 18 node-hours, มีแผน S3 และข้อจำกัด damage เป็น proxy; จากนั้น verify สดอีกครั้ง

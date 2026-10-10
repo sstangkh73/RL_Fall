@@ -1,81 +1,85 @@
-# ประเมิน compute สำหรับ LANTA (M3) — ฉบับร่าง
+# ประเมิน compute สำหรับ LANTA (M3)
 
-สถานะ 8 ต.ค. 2026: **ร่าง** ตัวเลข S1 มาจากผลจริง ส่วน S2 ยังไม่ผ่าน gate (M2)
-ตัวเลข S2 จึงเป็นค่าสมมติ และต้องแก้เมื่อรู้ว่าต้องใช้กี่ updates ถึงผ่าน gate
-ยังไม่เขียน `auto-loop/milestones/m3_compute.json` จนกว่าจะรู้ค่านั้น
+สถานะ 10 ต.ค. 2026: M1 และ M2 ผ่าน gate ครบ 3 seeds แล้ว ตัวเลข transitions ของ S1/S2 ด้านล่างมาจาก run ที่ใช้เป็นหลักฐานจริง ส่วน S3 ยังเป็นแผน จึงระบุเป็นสมมติฐานวางแผน ไม่ใช่ผลทดลอง
 
-สูตรตามแผนข้อ 7: node-hours = Σ (transitions ต่อ run × จำนวน run) ÷ throughput ต่อ node × 1.3 (buffer)
+## 1. ข้อมูลที่วัดได้จาก run ที่ผ่าน gate
 
-## 1. Throughput ที่วัดได้ (WSL2, i5-14400F 16 threads)
+ทุก run ใช้ 8 envs, 2,048 steps/env/update = 16,384 transitions/update และ learner 4 threads
 
-ทุก run ใช้ 8 envs + learner 4 threads และ 16,384 transitions ต่อ update
-ค่ามาจาก `steady_transitions_per_second` ใน `manifest.json` ของแต่ละ run
+| ขั้น/recipe | updates ต่อ seed | transitions ต่อ seed | throughput WSL ต่อ seed (t/s) |
+|---|---:|---:|---:|
+| S1 `natural4_r2` | 1,050 รวม A+B+CP+R1+R2 | 17,203,200 | 1,931 / 1,945 / 1,948 |
+| S2 `hardnobonus` | 200 | 3,276,800 | 1,229 / 1,243 / 1,180 |
 
-| run | seed 63001 | 63002 | 63003 |
-|---|---|---|---|
-| S1 R2 v4 (`natural4_r2`, รันเดี่ยว) | 1,931 | 1,945 | 1,948 |
-| S2 (`s2_dmg10000`, รันเดี่ยว) | 1,751 | 1,774 | 1,777 |
-| S1 R1 v3 (รัน 2 job พร้อมกัน) | 1,526* | 481 | 481 |
+throughput ในตารางเป็นค่า `steady_transitions_per_second` จาก manifest ของ endpoint R2/S2 ของแต่ละ seed
+ไม่ใช่ค่าเฉลี่ยของทุกช่วง update ใน recipe ทั้งหมด
 
-\* ช่วงที่ 63001 รันเดี่ยวหลังอีก job จบ
-ถ้ารันพร้อมกันเกินจำนวน core จะช้าลงหลายเท่า (481 เทียบกับ ~1,930) จึงต้องไม่ให้ thread รวมเกินจำนวน core ของ node
+S1 คิดจาก A=200, B=300, CP=150, R1=200, R2=200 updates ต่อ seed ตาม recipe จริง
+(`scripts/run_stage1_v1_recipe.sh`). S2 คิดจาก final200 ของ
+`scripts/run_stage2_hardnobonus.sh`; การประเมิน 192+192 episodes ไม่ถูกรวมเป็น training transitions
+และเผื่อเป็น evaluation overhead แยก 10% ในการคำนวณรวม
 
 ## 2. Transitions ถึง gate
 
-| ขั้น | updates ต่อ seed | transitions ต่อ seed | ที่มา |
-|---|---|---|---|
-| S1 (A 200 + B 300 + CP 150 + R1 200 + R2 200) | 1,050 | 17.2M | `scripts/run_stage1_v1_recipe.sh` ผ่าน M1 ทั้ง 3 seeds |
-| S2 | **ยังไม่รู้** (pilot ใช้ 200 updates = 3.3M แต่ยังไม่ผ่าน gate) | สมมติ 6.6M (400 updates) | ต้องแก้หลัง M2 |
-| S3 | ยังไม่ได้เริ่ม | สมมติ 13.1M (800 updates) | งานใหม่ จึงสมมติว่าใช้ 2 เท่าของ S2 |
+| ขั้น | ที่มาของตัวเลข | transitions ต่อ run/seed |
+|---|---|---:|
+| S1 | endpoint `natural4_r2`, 1,050 updates | 17,203,200 |
+| S2 | endpoint `hardnobonus`, 200 updates | 3,276,800 |
+| S3 | สมมติฐานวางแผนเบื้องต้น 800 updates; ยังไม่เริ่ม | 13,107,200 |
 
-ต้นทุนช่วงพัฒนาของ S1 จริง: R1/R2 ต้องเทรนซ้ำ 3 รอบ (v2, v3, v4) จึงใช้ ~1,850 updates ต่อ seed หรือ ~1.8 เท่าของ recipe สุดท้าย
+ค่า S3 เป็นสมมติฐานสำหรับขอ compute เท่านั้น ต้องแทนด้วย transitions ถึง gate จริงเมื่อเริ่ม S3
+และห้ามใช้เป็นหลักฐานว่า S3 เรียนรู้แล้ว
 
-## 3. จำนวน run ของงานเต็ม (สมมติ)
+## 3. ขอบเขตงานเต็มสำหรับประมาณการ
 
-| ส่วน | config | seeds | transitions ต่อ run | รวม |
-|---|---|---|---|---|
-| S1 recipe (ทำซ้ำบน LANTA) | 1 | 5 | 17.2M | 86M |
-| S2 พัฒนา + ผลหลัก (DAMAGE_W, เส้นแบ่งแรงผลัก, LR) | 8 | 3 | 6.6M | 157M |
-| S3 หลัก + controls 3 แบบ + λ sweep 5 ค่า | 9 | 3 | 13.1M | 354M |
-| S3 ต้นทุนช่วงพัฒนา (×2 ตามประสบการณ์ S1) | | | | +354M |
-| eval (survival, s2_eval, counterfactual) ~10% | | | | +95M |
-| **รวม** | | **56 runs** (ไม่นับช่วงพัฒนา) | | **~1,046M** |
+| ส่วน | config | seeds | transitions ต่อ run | รวม transitions |
+|---|---:|---:|---:|---:|
+| S1 ทำซ้ำเพื่อยืนยัน | 1 | 5 | 17,203,200 | 86,016,000 |
+| S2 ablation/threshold/LR | 8 | 3 | 3,276,800 | 78,643,200 |
+| S3 หลัก + controls + lambda sweep | 9 | 3 | 13,107,200 | 353,894,400 |
+| **training รวม** | | **56 runs** | | **518,553,600** |
+| evaluation/checkpoint overhead (10%) | | | | **51,855,360** |
+| **รวมก่อน buffer** | | | | **570,408,960** |
 
-## 4. Throughput ต่อ node ของ LANTA (สมมติ ต้องวัด)
+จำนวน 56 runs คือ 5 + (8x3) + (9x3) และไม่รวมการวัด benchmark แยกต่างหาก
 
-- LANTA CPU node: AMD EPYC 7713 64C 2.0 GHz ([TOP500](https://top500.org/system/180125)) ตัวอย่าง batch script ของ ThaiSC
-  ขอ `-c 128` ต่อ node และมี partition compute/memory/gpu ([ThaiSC docs](https://thaisc.atlassian.net/wiki/x/BYDSEQ))
-  ข้อมูลระบบเพิ่มเติม: [AMD case study](https://www.amd.com/en/resources/case-studies/nstda.html)
-  ส่วนที่ว่า 1 node มี 2 socket = 128 cores อนุมานจากตัวอย่าง `-c 128`
-- แต่ละ run ใช้ ~12 threads จึงวางได้ **10 runs ต่อ node** (120 threads) ลดจาก 12 ในแผนข้อ 7 เพราะเห็นแล้วว่าถ้า thread เกินจะช้าลงมาก
-- ต่อ core ของ EPYC 7713 (boost 3.675 GHz) น่าจะช้ากว่า i5-14400F (P-core boost 4.7 GHz) จึงสมมติ ~1,200 t/s ต่อ run (~0.62 เท่า)
-- throughput ต่อ node ≈ 10 × 1,200 = **12,000 t/s** ≈ 43M transitions ต่อ node-hour
-- **ต้องวัดจริง** ด้วย `scripts/lanta/bench_throughput.sbatch` (K=10, 20 updates, ใช้ ~1 node-hour) ก่อนขอโควตาใหญ่
+## 4. Throughput ต่อ node ของ LANTA
+
+ยังไม่มีสิทธิ์ submit บน LANTA ในรอบนี้ ดังนั้น 12,000 t/s เป็นค่าประมาณสำหรับวางแผน ไม่ใช่การวัดจริง:
+
+- สมมติ 10 runs ต่อ node; แต่ละ run ใช้ประมาณ 12 threads (8 envs + learner)
+- ใช้ 1,200 t/s ต่อ run เป็นค่าทำงานสำหรับการวางแผนเมื่อเทียบกับ WSL S1/S2; ยังไม่ได้วัดบน LANTA
+- throughput รวมที่ใช้คำนวณ = 10 x 1,200 = **12,000 t/s**
+- `scripts/lanta/bench_throughput.sbatch` จะวัดค่าจริงด้วย K=10, 20 updates ก่อนขอ quota ใหญ่
+
+การวาง 10 runs เป็นข้อจำกัดด้าน thread ไม่ใช่การอ้างว่า LANTA จะเร็วเท่ากันทุกงาน; ผล WSL แสดงแล้วว่า
+การรันพร้อมกันเกินจำนวน core ทำให้ throughput ต่อ run ลดลงมาก จึงต้องตรวจจาก benchmark จริง
 
 ## 5. Node-hours
 
-1,046M ÷ 12,000 t/s = 87,200 s = 24.2 node-hours × 1.3 = **~31 node-hours** (~4,000 core-hours)
+ใช้สูตรตามแผน:
 
-ความไม่แน่นอนหลัก:
-- S2/S3 อาจต้องใช้ updates มากกว่าที่สมมติหลายเท่า (S2 ยังไม่ผ่าน gate ใน 200 updates)
-- ถ้าวัดแล้วได้ throughput ต่อ node ต่ำกว่าที่สมมติ 2 เท่า จะได้ ~62 node-hours
-- จึงเสนอให้ขอ **~100 node-hours** ในรอบแรก (เผื่อไว้ ~3 เท่า) แล้วค่อยขอเพิ่มหลังได้ตัวเลข S3
+`node-hours = transitions รวม x 1.3 buffer / (throughput ต่อ node x 3,600)`
 
-ข้อสังเกต: งานนี้เล็กเมื่อเทียบกับขนาด LANTA เหตุผลหลักที่ต้องใช้ LANTA คือ**รันหลาย seed และหลาย config พร้อมกัน**
-(เครื่องนี้รันได้ทีละ run ถ้าซ้อนกันจะช้าลงมาก) ไม่ได้มาจาก run เดี่ยวที่ใหญ่
-56 runs บนเครื่องนี้ใช้ ~150 ชั่วโมงถ้ารันต่อกัน ส่วนบน LANTA run แต่ละชุดที่วางพร้อมกันบน 6 nodes จบใน ~3–4 ชั่วโมง
+`570,408,960 x 1.3 / (12,000 x 3,600) = 17.17 node-hours` จึงปัดขึ้นเป็น
+**18 node-hours (base estimate)**
 
-## 6. Slurm scripts (ยังไม่ได้ submit)
+ความไม่แน่นอนหลักคือ S3 ยังเป็นเพดาน 800 updates และ throughput LANTA ยังไม่ได้วัด หาก benchmark ได้เพียงครึ่งหนึ่ง
+ของสมมติฐาน จะเป็นประมาณ 35 node-hours ก่อนเผื่อการแก้ recipe ดังนั้นข้อเสนอสำหรับคำขอรอบแรกคือ
+**100 node-hours** เพื่อรองรับการวัด benchmark, การทดลองแก้ไข และการทำซ้ำที่ไม่ผ่าน โดยไม่อ้างว่าใช้ครบแน่นอน
+
+## 6. Slurm scripts ที่เตรียมไว้ (ยังไม่ submit)
 
 | ไฟล์ | งาน |
 |---|---|
-| `scripts/lanta/bench_throughput.sbatch` | วัด throughput ต่อ node (K runs พร้อมกัน) แล้วพิมพ์ผลรวม |
-| `scripts/lanta/s1_recipe.sbatch` | S1 recipe ครบทุกขั้น หลาย seed พร้อมกันบน 1 node (resubmit แล้ว resume ได้) |
-| `scripts/lanta/s2_pilot.sbatch` | S2 fine-tune + `s2_eval` หลาย seed พร้อมกัน (9 ต.ค.: รองรับ recipe ที่มี KL anchor แล้ว เช่น `--export=ALL,ANCHOR=1.0,ANCHOR_EPOCHS=1,RECOVERABLE_MAX=0.12`) |
+| `scripts/lanta/bench_throughput.sbatch` | วัด throughput ต่อ node ด้วย K runs |
+| `scripts/lanta/s1_recipe.sbatch` | รัน S1 recipe หลาย seeds และ resume ได้ |
+| `scripts/lanta/s2_pilot.sbatch` | fine-tune/eval S2 หลาย seeds; รองรับ anchor recipe |
 
-ก่อนรันต้องแก้ `-A <project-account>` ติดตั้ง venv ที่ `~/venvs/rl_fall` (หรือส่ง `PY=`) และตรวจชื่อ partition กับ time limit ของ LANTA ปัจจุบัน
+ก่อน submit ต้องแทน `<project-account>`, ตรวจ partition/time limit และติดตั้ง `~/venvs/rl_fall` บน LANTA
 
-## สิ่งที่ต้องทำเพื่อปิด M3
+## 7. ขอบเขตหลักฐาน
 
-1. M2 ผ่าน gate → แทนค่า S2 ในข้อ 2 ด้วย updates ที่ใช้จริง และคิดข้อ 3–5 ใหม่
-2. เขียน `auto-loop/milestones/m3_compute.json` (node_hours, transitions_to_gate, throughput_per_node, runs, sbatch)
+M3 ใช้ transitions จาก endpoint จริงของ M1/M2 เป็นฐาน แต่ยังไม่ใช่การยืนยัน throughput ของ LANTA
+และไม่ใช่หลักฐานว่า S3 ผ่าน gate การปรับ estimate หลัง benchmark หรือหลังมีผล S3 ต้องบันทึกเป็น revision ใหม่
+โดยไม่ลบตัวเลขเดิม
