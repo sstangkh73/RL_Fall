@@ -510,3 +510,33 @@
 - **งานถัดไป:** สร้างไฟล์ว่าง auto-loop/WAIT_FOR_JOBS แล้วจบรอบทันที ให้ลูปรอjobจบ
   รอบถัดไปอ่านfinal200/trendครบ3seeds ตรวจprovenance/effectiveconfigตามรอบ20:22 บันทึกทุกผลและเวลาจริงจากjobs.mdลงCurriculum_Plan
   ผ่านทุกseedจริงจึงเขียนm2_summary; ถ้ายังไม่ผ่านให้Claudeวิเคราะห์อย่างเดียวก่อนเลือกการทดลองถัดไป; M3รอS2gateจริง
+
+### รอบ 2026-10-10 11:50
+- **ตัวนำ:** Claude; ตัวช่วย Codex (ความเห็นที่สอง 80s + รีวิว diff 129s, อ่านอย่างเดียว ตรวจ git status แล้วไม่มีไฟล์ถูกแก้โดย Codex)
+- **job ที่จบ:** `20261009-202136-s2dmg20k` ใช้ **4:22:20 ชม.** exit0 (jobs.md). manifest ครบ (dmg20000/objective/coef1/raw_obs/max.08/update200, M1 pin ถูก)
+  final200 hard damage S2/S1/passive: 63001 .001473/.001867/.001607 ผ่าน; **63002 .002023/.001899/.001607 ไม่ผ่าน**;
+  63003 .001316/.001427/.001607 ผ่าน; easy S2/S1 91.7/87.5, 91.7/95.8, 93.8/95.8; FGU 7.1/8.7/6.5
+  ⇒ **M2 ไม่ผ่านครั้งที่ 9 (2/3)**; 63002 แย่ลงจาก joint10000 (.001682) และ damage เพิ่มตามการเทรน (u50 .001621 → u150 .002097)
+  trend พลิกผ่าน/ไม่ผ่านระหว่าง checkpoint (63003 ไม่ผ่านที่ 50/100/150 แต่ผ่านที่ 200) ⇒ gate 48 noisy
+  แยกส่วน: 63002 S2 ลำตัวถ่วงน้ำหนัก .001859 แขน .000164; passive ลำตัว .000966 แขน .000641 (passive ใช้แขนรับแรง)
+  บันทึกใน Curriculum_Plan ส่วน 5 แล้ว ไม่เขียน milestone
+- **diagnostic ใหม่ (Claude ทำ):** `scripts/stage2_fall_timing.py` + `scripts/run_stage2_fall_timing.sh` เวลา push→ล้ม
+  บน 48 hard scenarios ของ gate สำหรับ joint10000 และ dmg20000 ทั้ง 3 seeds รันตรงใน WSL ~7 นาที
+  ผล `results/stage2_diagnostics/fall_timing/` : S2 ล้มพอๆ กับ S1 และช้ากว่า passive เพียง ~0.1 s (median), corr(เวลา, damage) ≈ 0
+  ⇒ สมมติฐาน "reward จ่ายให้ยื้อการล้มนาน" ไม่ได้รับการสนับสนุน; ปัญหาคือท่าลงพื้น (ลำตัวแทนแขน)
+- **ความเห็นที่สอง Codex (ปัญหาเดิม ≥2 รอบ):** non-foot contact = fallen ⇒ ใช้มือยันพื้นทำให้หมดโบนัสเร็วขึ้นไม่กี่ step
+  (~5 step ≈ 7.5 reward ≈ ส่วนต่าง damage 63002) จึงลงโทษการใช้แขนรับแรงพอดี; Codex เสนอ gae_lambda .99
+  ผู้นำเลือกแก้ต้นเหตุใน reward แทน: เปลี่ยนตัวเดียว
+- **สิ่งที่แก้ (Claude):** env3d `hard_push_no_bonus` (default ปิด; หลัง push_start ของ hard push reward = −damage เท่านั้น),
+  train.py `--hard-push-no-bonus` + manifest key, run_stage1.sh `HARD_NO_BONUS=1`, test ใหม่ใน tests/test_balance.py,
+  recipe `scripts/run_stage2_hardnobonus.sh` (= joint10000 + flag; M1 pin เดิม; ตรวจ manifest หลังเทรน)
+  **gate หลักกำหนดก่อนรัน: final200 `s2_eval.json` ที่ --episodes-scale 4 (192 easy + 192 hard)** ทุก seed;
+  `s2_eval_n48.json` และ trend 50/100/150 (48) เป็นข้อมูลเสริมเท่านั้น; ไม่ประเมินผลเก่าย้อนหลังด้วย 192
+  Codex รีวิว: OK ไม่มี blocker, ยืนยัน flag ถึง SubprocVecEnv/resume, default-off ตรงกับ HEAD (reward/obs/RNG)
+- **verify:** `auto-loop/verify.ps1` tests exit0 (pytest **69 ผ่าน** รวม test ใหม่), M1 PASS, M2–M4 FAIL (goal exit1); preflight CHECK_ONLY ผ่าน
+- **job ที่สั่ง:** `20261010-120730-s2hardnob` = `bash scripts/run_stage2_hardnobonus.sh` คาด **~5 ชม.**
+  (เทรน 3×~63 นาที + eval หลัก 192 ~18 นาที/seed + eval เสริม 4×~4.5 นาที/seed); ตรวจ process เทรน 63001 มี --hard-push-no-bonus/--damage-weight 10000
+- **ปัญหา:** ยังไม่มีหลักฐานว่าเป็นไปไม่ได้ทางฟิสิกส์ (passive ทำ damage ต่ำกว่าได้ = มีท่าลงพื้นที่ดีกว่าอยู่จริง) จึงไม่สร้าง STOP
+- **งานถัดไป:** รอ job; อ่าน `s2_eval.json` (192) final200 ทั้ง 3 seeds เป็น verdict หลัก ตรวจ manifest hard_push_no_bonus=true
+  ดู FGU (ความเสี่ยงหลัก: ยอมล้มบน easy), per-part (แขน vs ลำตัว), รัน fall_timing กับ recipe ใหม่ได้ (เพิ่ม TAG ใน run_stage2_fall_timing.sh)
+  ผ่านทั้ง 3 → เขียน m2_summary.json ชี้ s2_eval.json (192) ของ run นี้ แล้วเริ่ม M3; ไม่ผ่าน → พิจารณา gae_lambda .99 ของ Codex

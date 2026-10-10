@@ -11,12 +11,18 @@ function Get-LoopJobs {
     if (-not (Test-Path $jobsDir)) { return @() }
     $now = [DateTimeOffset]::Now.ToUnixTimeSeconds()
     foreach ($f in Get-ChildItem $jobsDir -Filter *.json | Sort-Object Name) {
-        $j = Get-Content $f.FullName -Raw | ConvertFrom-Json
+        # ไฟล์อาจว่างหรือ JSON ไม่ครบชั่วขณะ เพราะ WSL กำลังเขียนทับด้วย printf >
+        $j = try { Get-Content $f.FullName -Raw | ConvertFrom-Json } catch { $null }
+        if (-not $j) { [pscustomobject]@{ Job = $f.BaseName; State = 'writing' }; continue }
         $start = [DateTimeOffset]::FromUnixTimeSeconds([long]$j.start_epoch).ToLocalTime()
         $state = $j.state
         if ($state -eq 'running') {
             $hb = Join-Path $jobsDir "$($j.id).heartbeat"
-            $beat = if (Test-Path $hb) { [long](Get-Content $hb -Raw).Trim() } else { $start.ToUnixTimeSeconds() }
+            # heartbeat ถูกเขียนทับทุก 60 วิ ถ้าอ่านเจอไฟล์ว่าง ให้ใช้เวลาแก้ไขไฟล์แทน
+            $raw = if (Test-Path $hb) { try { Get-Content $hb -Raw -ErrorAction Stop } catch { $null } }
+            $beat = if ("$raw".Trim() -match '^\d+$') { [long]$Matches[0] }
+                elseif (Test-Path $hb) { ([DateTimeOffset](Get-Item $hb).LastWriteTime).ToUnixTimeSeconds() }
+                else { $start.ToUnixTimeSeconds() }
             if ($now - $beat -gt 600) { $state = 'stale' }
             $secs = $now - $start.ToUnixTimeSeconds()
         } else { $secs = [long]$j.duration_s }

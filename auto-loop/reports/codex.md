@@ -277,3 +277,89 @@ OK. TAG matches the pilot in both cases:
 Lines 24–27 are `set -u` safe: guarded conditions prevent expanding unset variables. Bash syntax checks and isolated TAG checks passed. No files edited.
 
 log เต็ม: `auto-loop/.loop/codex/20261009-123912.log`
+
+## 2026-10-10 12:01:31  (exit 0, 80s)
+
+**Claude สั่ง:**
+
+````text
+Read the file tmp/codex_m2_second_opinion.md and answer it exactly as instructed there. Analysis only: do not edit, create or delete any file.
+````
+
+**Codex รัน:**
+
+````text
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "Get-Content -LiteralPath 'C:\\RL_Fall\\tmp\\codex_m2_second_opinion.md'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "rg -n 'RL_Fall|M2|second.opinion' 'C:\\Users\\sstan\\.codex\\memories\\MEMORY.md'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "Get-Content -LiteralPath 'C:\\Users\\sstan\\.codex\\skills\\systematic-debugging\\SKILL.md'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "rg --files -g AGENTS.md -g '*s2*' -g '*S2*' -g '*m2*' -g '*M2*' -g '*ppo*' -g '*reward*' -g '*train*' -g '*damage*'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "Get-Content -LiteralPath 'src\\rl_fall\\anchor_ppo.py'; Get-Content -LiteralPath 'src\\rl_fall\\train.py'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "rg -n 'gae_lambda|gamma|damage_weight|post_fall|anchor|fall.*reward|reward.*fall|torso|ctrl' src\\rl_fall scripts\\run_stage2_damage20k.sh configs" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "rg -n -C 3 'gae_lambda|gamma|PPO\\(|PPO.load|set_parameters|norm_reward|anchor-coef|critic-warmup' src\\rl_fall\\train.py scripts\\run_stage2_damage20k.sh; Get-Content -LiteralPath 'scripts\\run_stage2_damage20k.sh'; Get-Content -LiteralPath 'src\\rl_fall\\env3d.py' | Select-Object -Skip 515 -First 140" in C:\RL_Fall
+````
+
+**Codex ตอบ:**
+
+1. **Most likely: an inherited recovery strategy that produces poor landings, with weak credit assignment for changing it.** S1/S2 likely maintain joint torques and arm configurations suited to standing; passive dynamics permit arm contact that distributes impact away from the torso. This is a hypothesis—the damage breakdown establishes where damage occurs, not the exact kinematics.
+
+   A concrete conflict exists in the code: **any non-foot floor contact declares a fall and removes survival reward**. Protective hand contact therefore competes with the recovery objective, even without systematically delaying falls. Your timing diagnostic weakens the delay explanation but does not eliminate this incentive.
+
+   Raising damage weight increases the cost of existing landings; it does not supply successful alternatives. Reward/advantage normalization also means twice the penalty does not produce twice the actor update, although it still changes the reward tradeoff. [SB3 PPO documentation](https://stable-baselines3.readthedocs.io/en/v2.5.0/modules/ppo.html)
+
+2. **Pick (d): change only `gae_lambda` from 0.95 to 0.99**, using the damage-10000 recipe, three pinned S1 initializations, and final update 200. Keep the anchor and other settings unchanged.
+
+   The trainer specifies 0.95. With gamma 0.99, a damage-related TD residual one second later receives direct GAE weight approximately **0.047**, versus **0.366** with lambda 0.99. This strengthens assignment of impact consequences to earlier actions that set the landing configuration. These are residual weights, **not a hard learning horizon**; an accurate critic can already carry delayed consequences backward. [GAE paper](https://arxiv.org/html/1506.02438v6)
+
+   This is my best next hypothesis test, not an evidence-backed guarantee of three passing seeds. Main risk: higher gradient variance and shared-network drift could damage easy recovery; the unchanged anchor provides some protection. Ensure the loaded model and rollout buffer both use the new lambda.
+
+   Lowering the easy-state anchor risks the behavior you must preserve; 400 updates has no clear supporting trend; larger evaluation improves measurement rather than training.
+
+3. **Yes, prospectively enlarging evaluation is legitimate if the binding protocol explicitly permits ≥48 episodes.** Fix 192/group, scenario generation, paired baselines, final checkpoint, and decision rules before the next run. Report previous 48-episode failures separately. Replacing those failures retroactively after seeing favorable expanded results would be post-hoc selection. If exactly 48 is binding, 192 can only be supplementary.
+
+log เต็ม: `auto-loop/.loop/codex/20261010-120011.log`
+
+## 2026-10-10 12:07:26  (exit 0, 129s)
+
+**Claude สั่ง:**
+
+````text
+Review only, do NOT edit/create/delete any file. Run: git diff -- src/rl_fall/env3d.py src/rl_fall/train.py scripts/run_stage1.sh tests/test_balance.py ; and read new file scripts/run_stage2_hardnobonus.sh (compare with scripts/run_stage2_damage20k.sh). Purpose: new opt-in flag hard_push_no_bonus: in S2 training, on episodes whose push was drawn from the hard range, reward after push_start is only -damage (no survival/upright/posture/capture terms). Default off must leave all existing behavior and RNG streams unchanged. Recipe = joint10000 recipe + this flag; primary gate eval pre-registered at --episodes-scale 4 (192/group). Report in under 250 words: any bug (e.g. flag not reaching SubprocVecEnv envs, resume path dropping the flag, anchor callback interaction, eval script mismatch, RNG change), with file:line. Say BLOCKER or OK.
+````
+
+**Codex รัน:**
+
+````text
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command 'Get-Content C:/Users/sstan/.codex/skills/verification-before-completion/SKILL.md' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command 'git diff -- src/rl_fall/env3d.py src/rl_fall/train.py scripts/run_stage1.sh tests/test_balance.py' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command '$paths = @('"'scripts/run_stage2_hardnobonus.sh','scripts/run_stage2_damage20k.sh'); foreach ("'$p in $paths) { Write-Output $p; $n=0; Get-Content -LiteralPath $p | ForEach-Object { $n++; '"'{0,4}: {1}' -f "'$n,$_ } }' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "rg --files -g AGENTS.md -g pyproject.toml -g '*joint*' -g '*stage2*'; rg -n 'def step|sim_time|push_rng|def reset|make_vec|make_env|env_kwargs|Anchor|hard_push' src/rl_fall/env3d.py src/rl_fall/train.py tests/test_balance.py" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command '$paths = @('"'src/rl_fall/train.py','scripts/run_stage1.sh','scripts/stage2_eval.py'); foreach ("'$p in $paths) { Write-Output $p; $n=0; Get-Content -LiteralPath $p | ForEach-Object { $n++; '"'{0,4}: {1}' -f "'$n,$_ } }' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command '$n=0; Get-Content -LiteralPath '"'src/rl_fall/train.py' | ForEach-Object { "'$n++; if ($n -ge 460 -and $n -le 640) { '"'{0,4}: {1}' -f "'$n,$_ } }' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command '$n=0; Get-Content -LiteralPath '"'scripts/run_stage1.sh' | ForEach-Object { "'$n++; if ($n -ge 1 -and $n -le 96) { '"'{0,4}: {1}' -f "'$n,$_ } }' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command '$n=0; Get-Content -LiteralPath '"'src/rl_fall/env3d.py' | ForEach-Object { "'$n++; if ($n -ge 527 -and $n -le 703) { '"'{0,4}: {1}' -f "'$n,$_ } }' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command '$n=0; Get-Content -LiteralPath '"'scripts/run_stage2_objective.sh' | ForEach-Object { "'$n++; if ($n -ge 1 -and $n -le 180) { '"'{0,4}: {1}' -f "'$n,$_ } }' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command '$n=0; Get-Content -LiteralPath '"'pyproject.toml' | ForEach-Object { "'$n++; if ($n -ge 1 -and $n -le 140) { '"'{0,4}: {1}' -f "'$n,$_ } }' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "python -B -c \"import sys; print(sys.executable); import mujoco, stable_baselines3, pytest; print('dependencies available')\"" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command '$specs = @(@{p='"'tests/test_balance.py';a=1;b=275},@{p='src/rl_fall/env3d.py';a=310;b=480},@{p='scripts/run_stage2_pilot.sh';a=1;b=180}); foreach ("'$s in $specs) { Write-Output $s.p; $n=0; Get-Content -LiteralPath $s.p | ForEach-Object { $n++; if ($n -ge $s.a -and $n -le $s.b) { '"'{0,4}: {1}' -f "'$n,$_ } } }' in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "Get-ChildItem -LiteralPath . -Force -Directory | Select-Object -ExpandProperty Name; Get-Command python,py,bash,wsl -ErrorAction SilentlyContinue | Select-Object Name,Source; rg -n 'venv|pytest|python.exe|wsl' README.md docs scripts -g '*.md' -g '*.ps1'" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "@'
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command '$env:PYTHONDONTWRITEBYTECODE='"'1'; "'$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='"'1'; .\\.venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/test_balance.py" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command "& 'C:\\Program Files\\Git\\usr\\bin\\bash.exe' -n scripts/run_stage1.sh scripts/run_stage2_hardnobonus.sh scripts/run_stage2_damage20k.sh" in C:\RL_Fall
+"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe" -Command '$env:PYTHONDONTWRITEBYTECODE='"'1'; "'$env:PYTHONPATH='"'C:\\RL_Fall\\src'; "'$reviewCode = @'"'
+````
+
+**Codex ตอบ:**
+
+**OK — no blocker found.**
+
+- [env3d.py:401](/C:/RL_Fall/src/rl_fall/env3d.py:401) tracks whether the episode’s push came from the hard-range draw. [env3d.py:633](/C:/RL_Fall/src/rl_fall/env3d.py:633) clears all shaping after `push_start`, then subtracts weighted damage.
+- [train.py:504](/C:/RL_Fall/src/rl_fall/train.py:504) passes the flag through worker kwargs. Runtime verification confirmed both `SubprocVecEnv` workers receive it.
+- [run_stage1.sh:86](/C:/RL_Fall/scripts/run_stage1.sh:86) includes `EXTRA` on both fresh and resume paths, preserving the flag.
+- [train.py:248](/C:/RL_Fall/src/rl_fall/train.py:248) keeps objective-anchor samples limited to impulses ≤0.08; hard pushes ≥0.15 remain excluded.
+- [run_stage2_hardnobonus.sh:59](/C:/RL_Fall/scripts/run_stage2_hardnobonus.sh:59) matches joint10000 plus the flag. [Line 115](/C:/RL_Fall/scripts/run_stage2_hardnobonus.sh:115) explicitly uses primary scale 4; verified **192/group**. Evaluation ignores reward, so omitting this training-only flag there is appropriate.
+
+Verification: **23 balance tests passed**, shell syntax checks passed, and sampled default-off trajectories matched HEAD exactly for rewards, observations, physics, and RNG states across hard fractions 0/0.5/1.
+
+No files changed. Full training/resume execution was not run.
+
+log เต็ม: `auto-loop/.loop/codex/20261010-120517.log`

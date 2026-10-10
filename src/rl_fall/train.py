@@ -478,7 +478,7 @@ def run_training(
     critic_warmup_updates: int = 0, learning_rate: float | None = None,
     anchor_coef: float = 0.0, anchor_checkpoint: Path | None = None,
     anchor_max_impulse: float | None = None, anchor_epochs: int | None = None,
-    anchor_mode: str = "post_update",
+    anchor_mode: str = "post_update", hard_push_no_bonus: bool = False,
 ) -> dict[str, object]:
     if anchor_mode not in ("post_update", "objective"):
         raise ValueError("anchor_mode must be post_update or objective")
@@ -499,7 +499,9 @@ def run_training(
          "capture_point_weight": capture_point_weight,
          "posture_version": posture_version, "natural_stance": natural_stance,
          "hard_push_range": hard_push_range,
-         "fall_continue_s": fall_continue_s, "damage_weight": damage_weight}
+         "fall_continue_s": fall_continue_s, "damage_weight": damage_weight,
+         # Only when enabled, so env kwargs of earlier runs stay identical.
+         **({"hard_push_no_bonus": True} if hard_push_no_bonus else {})}
         if environment == "3d" else None
     )
     # Task-mode evaluation keeps the benchmark's impaired condition-B scenarios;
@@ -764,6 +766,7 @@ def run_training(
             "posture_version": posture_version, "natural_stance": natural_stance,
             "hard_push_range": list(hard_push_range) if hard_push_range else None,
             "fall_continue_s": fall_continue_s, "damage_weight": damage_weight,
+            "hard_push_no_bonus": hard_push_no_bonus,
             "critic_warmup_updates": critic_warmup_updates,
             "learning_rate_override": learning_rate,
             "anchor_coef": anchor_coef,
@@ -876,6 +879,8 @@ def main() -> None:
                              "(default PPO n_epochs); Adam makes this, not the coef, the strength knob")
     parser.add_argument("--anchor-mode", choices=("post_update", "objective"), default="post_update",
                         help="separate legacy KL phase, or KL in the PPO minibatch objective")
+    parser.add_argument("--hard-push-no-bonus", action="store_true",
+                        help="S2: no reward for staying up after a hard push starts; only damage counts")
     args = parser.parse_args()
     wrapper = args.wrapper or ("dummy" if args.n_envs == 1 else "subproc")
     result = run_training(args.output, args.device, args.condition, args.seed,
@@ -891,7 +896,7 @@ def main() -> None:
                           args.fall_continue_s, args.damage_weight,
                           args.critic_warmup_updates, args.learning_rate,
                           args.anchor_coef, args.anchor_checkpoint, args.anchor_max_impulse,
-                          args.anchor_epochs, args.anchor_mode)
+                          args.anchor_epochs, args.anchor_mode, args.hard_push_no_bonus)
     print(json.dumps(result, indent=2, sort_keys=True))
 
 

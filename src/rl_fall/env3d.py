@@ -165,6 +165,7 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         hard_push_range: tuple[float, float] | None = None,
         fall_continue_s: float = 0.0,
         damage_weight: float = 0.0,
+        hard_push_no_bonus: bool = False,
     ) -> None:
         super().__init__()
         condition = condition.upper()
@@ -196,6 +197,10 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
             raise ValueError("fall_continue_s and damage_weight must be >= 0")
         self.fall_continue_s = float(fall_continue_s)
         self.damage_weight = float(damage_weight)
+        # S2: on hard (unrecoverable) pushes pay nothing for staying up after the
+        # push starts, so only damage counts; the policy must infer the push class.
+        self.hard_push_no_bonus = bool(hard_push_no_bonus)
+        self.hard_push = False
         self._fall_step: int | None = None
         self.body_height = BODY_HEIGHT_M.get(body, 1.2)
         self.body = body
@@ -393,9 +398,11 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
         self.push_start = float(self.push_rng.uniform(*start_range))
         self.push_duration = float(self.push_rng.uniform(0.05, 0.15))
         dimensionless_impulse = float(self.push_rng.uniform(0.0, self.max_push_impulse))
+        self.hard_push = False
         # Extra draws only when enabled, so default push streams stay unchanged.
         if self.hard_push_fraction > 0.0 and self.push_rng.uniform() < self.hard_push_fraction:
             dimensionless_impulse = float(self.push_rng.uniform(*self.hard_push_range))
+            self.hard_push = True
         self.push_impulse = dimensionless_impulse
         angle = float(self.push_rng.uniform(-np.pi, np.pi))
         total_mass = float(np.sum(self.model.body_mass))
@@ -623,6 +630,8 @@ class RLFall3DEnv(gym.Env[np.ndarray, np.ndarray]):
             reward -= posture_penalty
         capture_bonus = self._capture_point_bonus() if not self.fallen else 0.0
         reward += capture_bonus
+        if self.hard_push_no_bonus and self.hard_push and sim_time >= self.push_start:
+            reward = 0.0
         weighted_increment = float(S2_DAMAGE_WEIGHTS @ total_increment)
         damage_penalty = self.damage_weight * weighted_increment
         reward -= damage_penalty

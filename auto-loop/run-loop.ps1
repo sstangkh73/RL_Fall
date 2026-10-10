@@ -179,13 +179,23 @@ function Get-ActiveJobs {
     if (-not (Test-Path $dir)) { return @() }
     $now = [DateTimeOffset]::Now.ToUnixTimeSeconds()
     @(Get-ChildItem $dir -Filter *.json | ForEach-Object {
-        $j = Get-Content $_.FullName -Raw | ConvertFrom-Json
+        # WSL เขียนไฟล์สถานะด้วย printf > (ล้างไฟล์ก่อนแล้วค่อยเขียน) ถ้าอ่านตรงจังหวะนั้นจะได้ไฟล์ว่างหรือ JSON ไม่ครบ
+        # ให้ถือว่ายังรันอยู่ไว้ก่อน แล้วรอบ poll ถัดไปจะอ่านได้ครบ
+        $j = try { Get-Content $_.FullName -Raw | ConvertFrom-Json } catch { $null }
+        if (-not $j) { return $_.BaseName }
         if ($j.state -eq 'running') {
-            $hb = Join-Path $dir "$($j.id).heartbeat"
-            $beat = if (Test-Path $hb) { [long](Get-Content $hb -Raw).Trim() } else { [long]$j.start_epoch }
+            $beat = Get-HeartbeatEpoch (Join-Path $dir "$($j.id).heartbeat") ([long]$j.start_epoch)
             if ($now - $beat -le 600) { $j.id }
         }
     })
+}
+
+# heartbeat ถูกเขียนทุก 60 วิด้วย date +%s > file ถ้าอ่านเจอไฟล์ว่าง ให้ใช้เวลาแก้ไขไฟล์แทน (เพิ่งถูกเขียน)
+function Get-HeartbeatEpoch([string]$path, [long]$fallback) {
+    if (-not (Test-Path $path)) { return $fallback }
+    $raw = try { Get-Content $path -Raw -ErrorAction Stop } catch { $null }
+    if ("$raw".Trim() -match '^\d+$') { return [long]$Matches[0] }
+    return ([DateTimeOffset](Get-Item $path).LastWriteTime).ToUnixTimeSeconds()
 }
 
 function Wait-Jobs {
@@ -303,6 +313,14 @@ try {
 
         if ($v.Code -eq 0) { $endReason = "สำเร็จ — verify ผ่านในรอบที่ $i"; $exitCode = 0; break }
     }
+}
+catch {
+    # ไม่งั้นข้อความตอนจบจะเป็น "ครบจำนวนรอบ..." ซึ่งไม่ใช่สาเหตุจริง
+    if ($endReason -notmatch 'ไฟล์ที่ห้ามแก้') {
+        $endReason = "error: $($_.Exception.Message) ($($_.InvocationInfo.ScriptName):$($_.InvocationInfo.ScriptLineNumber))"
+    }
+    $exitCode = 3
+    throw
 }
 finally {
     $total = (Get-Date) - $loopStart

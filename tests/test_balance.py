@@ -269,3 +269,35 @@ def test_s2_fall_runs_on_and_charges_weighted_damage():
         assert reward == pytest.approx(-1000.0 * expected)   # no survival bonus once down
         weighted += expected
     assert weighted > 0.0                                # the impact is scored
+
+
+def test_s2_hard_push_no_bonus_pays_only_damage_after_a_hard_push():
+    from rl_fall.env3d import S2_DAMAGE_WEIGHTS
+
+    def run(hard_fraction, no_bonus):
+        env = RLFall3DEnv(condition="A", seed=31, body="v1_0", mode="balance",
+                          max_push_impulse=0.05, hard_push_fraction=hard_fraction,
+                          hard_push_range=(0.15, 0.25), fall_continue_s=1.0,
+                          damage_weight=1000.0, hard_push_no_bonus=no_bonus)
+        env.reset(seed=31)
+        rows = []
+        while True:
+            _, reward, terminated, _, info = env.step(np.zeros(69, dtype=np.float32))
+            rows.append((float(env.data.time), reward, info))
+            if terminated:
+                return env, rows
+
+    hard, rows = run(1.0, True)
+    assert hard.hard_push and hard.push_impulse >= 0.15
+    before = [r for t, r, _ in rows if t < hard.push_start]
+    after = [(r, i) for t, r, i in rows if t >= hard.push_start]
+    assert before and all(r > 0.0 for r in before)        # standing still pays before the push
+    for reward, info in after:                             # afterwards only damage counts
+        expected = float(S2_DAMAGE_WEIGHTS @ np.array(info["damage_increment"]))
+        assert reward == pytest.approx(-1000.0 * expected)
+    baseline, rows_off = run(1.0, False)                   # flag off: same physics, old reward
+    assert [i["fallen"] for _, _, i in rows_off] == [i["fallen"] for _, _, i in rows]
+    assert any(r > 0.0 for t, r, _ in rows_off if t >= baseline.push_start)
+    easy, rows_easy = run(0.0, True)                       # easy pushes keep the bonus
+    assert not easy.hard_push
+    assert any(r > 0.0 for t, r, _ in rows_easy if t >= easy.push_start)

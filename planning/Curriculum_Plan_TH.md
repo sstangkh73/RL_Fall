@@ -805,6 +805,69 @@ run timestamps ของ 63001/63002/63003 คือ `20261009T144426` / `202610
   ไม่รับการคูณSEของgateเป็น2เท่าหรือคำว่าcoin flipเป็นข้อสรุป เพราะangle/reset designต่างกันและไม่มีCIgateที่วัดจริง
   ไม่ถือว่าS1เริ่มต้นเป็นสาเหตุที่พิสูจน์แล้ว แม้63002 S1 meanสูงกว่าpassive; ไม่มีhelperแก้ไฟล์
 
+**ผล damage incentive ×2 (damage20000, 10 ต.ค. 2026): M2 ยังไม่ผ่าน ครั้งที่ 9 (ผ่าน 2/3 ที่ final200)**
+
+- job `20261009-202136-s2dmg20k` exit 0 ใช้ **4:22:20 ชม.** (jobs.md) 3 seeds ต่อกัน ~66–69 นาที/seed รวม eval
+  manifest ทุก seed: damage_weight20000, objective anchor coef1, raw_obs, max.08, hard.5, update200, status complete
+  init/teacher = M1 natural4_r2 timestamp 100414/112408/124330 ตามที่ pin ไว้; throughput WSL 1071.7/1040.7/1095.4 t/s
+- runs: `results/stage2/seed_*/push_0.08_hard0.5_posture1.0_s2_dmg20000_anc1.0_objective/3d_A_env8_subproc_cpu_seed*_t4_20261009T202140|215111|231913`
+
+| seed | ckpt | รอด easy S2 / S1 (%) | FGU (%) | hard damage S2 | S1 | passive | hard รอด S2 (%) | gate |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| 63001 | final200 | 91.7 / 87.5 | 7.1 | 0.001473260 | 0.001866519 | 0.001606949 | 0.0 | ผ่าน |
+| 63002 | final200 | 91.7 / 95.8 | 8.7 | **0.002023232** | 0.001899228 | 0.001606949 | 6.2 | **ไม่ผ่าน** (damage > S1 และ > passive) |
+| 63003 | final200 | 93.8 / 95.8 | 6.5 | 0.001316048 | 0.001426663 | 0.001606949 | 0.0 | ผ่าน |
+
+- trend (ไม่ใช่ endpoint): 63001 u50/100/150 = ผ่าน/ผ่าน/ไม่ผ่าน (FGU 11.9 ที่ u150);
+  63002 hard damage .001621/.001755/.002097 ไม่ผ่านทุกจุด และ **เพิ่มขึ้นตามการเทรน**;
+  63003 u50/100/150 ไม่ผ่านทั้งหมด (FGU 10.9/13.0 และ damage .001647/.001543 > S1) แต่ final200 ผ่าน
+  ⇒ verdict ต่อ seed พลิกไปมาระหว่าง checkpoint ติดกัน: gate 48 episodes noisy เทียบกับ margin S2–passive
+- 63002 เทียบ joint10000: hard damage final200 แย่ลง .001682 → .002023; การเพิ่มน้ำหนัก damage ×2 ไม่ช่วย
+- แยกส่วนร่างกาย (hard, weighted): 63002 S2 ลำตัว .001859 / แขนรวม .000164; passive ลำตัว .000966 / แขน .000641
+  passive ใช้แขนรับแรงมากกว่าราว 4 เท่าและลำตัวน้อยกว่าครึ่ง; ที่ impulse .25 S2=.002372 เทียบ passive=.001183
+  passive damage ที่ .25 ต่ำกว่าที่ .15/.20 (.001589/.002048) จึงสงสัยว่าการล้มเร็วแบบไม่ต้านลดแรงที่ลำตัว
+- สมมติฐานใหม่ (วิเคราะห์ reward ใน `env3d._balance_step`): หลังโดนผลัก reward ยืนได้ ~1.5/step จนกว่าจะล้ม
+  ล้มช้าลง 25 step (0.5 s) ได้ ~37 reward ใกล้เคียง damage penalty ทั้งก้อนของการล้มทั่วไป (.002×20000=40)
+  และ γ=.99 ยังลดมูลค่า damage ที่เกิดช้าลงอีก ~22% ต่อ 0.5 s ⇒ reward จ่ายให้ "ฝืนแล้วล้ม" บนแรงผลักที่กู้ไม่ได้
+  ซึ่งตรงข้ามกับคำถาม S2 และอธิบายได้ว่าทำไมการเพิ่ม damage weight ไม่ช่วย; ตรวจด้วย diagnostic เวลา push→ล้ม ด้านล่าง
+
+**diagnostic เวลา push→ล้ม (10 ต.ค., ไม่ใช่ gate):** `bash scripts/run_stage2_fall_timing.sh`
+(`scripts/stage2_fall_timing.py` ใช้ scenario/policy loading ของ stage2_eval, 48 hard ต่อ policy, final200)
+รันตรงใน WSL ~7 นาที ผล `results/stage2_diagnostics/fall_timing/<recipe>/seed_*.json` (diagnostic_only=true)
+
+| recipe | seed | เวลาล้มเฉลี่ย S2 / S1 / passive (s) | paired S2−passive mean / median (s) | corr(เวลาล้ม, damage) ของ S2 |
+|---|---|---|---|---:|
+| dmg10000 | 63001 | 0.838 / 0.881 / 0.772 | +0.066 / +0.080 | +0.095 |
+| dmg10000 | 63002 | 0.976 / 1.103 / 0.772 | +0.204 / +0.120 | +0.066 |
+| dmg10000 | 63003 | 0.912 / 1.064 / 0.772 | +0.140 / +0.100 | −0.017 |
+| dmg20000 | 63001 | 0.882 / 0.881 / 0.772 | +0.110 / +0.080 | −0.155 |
+| dmg20000 | 63002 | 1.051 / 1.103 / 0.772 | +0.280 / +0.120 | −0.016 |
+| dmg20000 | 63003 | 0.964 / 1.064 / 0.772 | +0.193 / +0.120 | −0.080 |
+
+- S2 ไม่ได้ยื้อการล้มนานกว่า S1 (paired S2−S1 mean −0.15…+0.02 s) และช้ากว่า passive เพียง ~0.1 s (median)
+  เวลาล้มไม่ทำนาย damage (pooled ทุก policy |r| ≤ 0.10, n≈144) ⇒ **สมมติฐาน "ยื้อการล้มนาน" ไม่ได้รับการสนับสนุน**
+  ส่วนต่าง damage มาจากท่าลงพื้น (ลำตัวแทนแขน) ไม่ใช่เวลาล้ม
+- ความเห็นที่สอง Codex (80 s, log `auto-loop/.loop/codex/20261010-120011.log`, วิเคราะห์อย่างเดียว):
+  `fallen` นับการแตะพื้นของส่วนที่ไม่ใช่เท้าเป็นการล้ม ⇒ เอามือยันพื้น (แบบ passive) ทำให้หมดโบนัสเร็วขึ้นไม่กี่ step
+  ~5 step ≈ 7.5 reward ใกล้ส่วนต่าง damage ของ 63002 (.0004×10k–20k = 4–8) จึงเป็นแรงจูงใจ *ไม่ให้ใช้แขนรับแรง* ที่ margin พอดี
+  Codex เสนอ gae_lambda .99; ผู้นำเลือกแก้ที่ต้นเหตุใน reward แทน (ข้างล่าง) เพราะตรงกับกลไกที่พบกว่า
+
+**การทดลองถัดไปที่กำหนดก่อนรัน: hard-push no bonus (10 ต.ค.)**
+
+- เปลี่ยนตัวเดียวจาก joint10000: flag `hard_push_no_bonus` (env3d/train `--hard-push-no-bonus`, `HARD_NO_BONUS=1`)
+  ใน episode ที่แรงผลักมาจากช่วง hard (U(.15,.25)) หลัง push_start reward = −damage เท่านั้น
+  (ไม่มีโบนัสรอด/upright/posture/capture) ⇒ การแตะพื้นด้วยมือไม่เสียอะไรนอกจาก damage จริง
+  episode แรงผลักกู้ได้ (≤.08) reward เดิมทุกอย่าง; policy ไม่เห็น class ต้องอนุมานจาก state เอง
+  ค่าเริ่มต้นปิด: test ใหม่ + Codex ตรวจว่า trajectory/reward/RNG ของ default ตรงกับ HEAD
+- `bash scripts/run_stage2_hardnobonus.sh` — M1 pin 100414/112408/124330, damage10000, objective anchor1.0, update200
+  root `results/stage2/seed_*/push_0.08_hard0.5_posture1.0_s2_dmg10000_anc1.0_objective_hardnobonus/3d_*`
+- **gate หลักกำหนดก่อนรัน:** final200 `s2_eval.json` ที่ `--episodes-scale 4` = 192 easy + 192 hard ต่อ policy ทุก seed
+  (GOAL กำหนด ≥48) เพื่อลด noise ที่ทำให้ verdict พลิกระหว่าง checkpoint; ใช้กับทุก seed เท่ากัน
+  `s2_eval_n48.json` (48 เดิม) และ trend 50/100/150 เป็นข้อมูลเสริม **ห้ามใช้แทน verdict หลัก**
+  ผลล้มเหลว 9 ครั้งก่อนหน้าที่ 48 episodes ยังคงรายงานตามเดิม ไม่ประเมินย้อนหลังด้วย 192
+- ความเสี่ยง: ไม่มีโบนัสบน hard ⇒ policy อาจยอมล้มเร็ว/ไม่พยายามกู้เมื่อไม่แน่ใจ ⇒ FGU บน easy เพิ่ม
+  (anchor KL บน easy ช่วยกันไว้); hard survivors ไม่ได้รางวัลแต่ damage=0 จึงยังดีกว่าล้ม
+
 นิยาม "กู้ได้" เทียบกับ controller ที่ระบุชัด (policy S1) ไม่ใช่ค่าสัมบูรณ์
 ตามข้อสังเกตในงาน Learning to Predict Humanoid Fall (2011) ที่อ้างไว้ใน prior-art review
 
