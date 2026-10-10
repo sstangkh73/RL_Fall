@@ -868,6 +868,26 @@ run timestamps ของ 63001/63002/63003 คือ `20261009T144426` / `202610
 - ความเสี่ยง: ไม่มีโบนัสบน hard ⇒ policy อาจยอมล้มเร็ว/ไม่พยายามกู้เมื่อไม่แน่ใจ ⇒ FGU บน easy เพิ่ม
   (anchor KL บน easy ช่วยกันไว้); hard survivors ไม่ได้รางวัลแต่ damage=0 จึงยังดีกว่าล้ม
 
+**ผล hard-push no bonus final200 (10 ต.ค. 2026): M2 ผ่านครบ 3/3 seeds**
+
+- job `20261010-120730-s2hardnob` exit 0 ใช้ **4:11:18 ชม.** (jobs.md); เทรน 3 seeds ต่อกันและประเมิน endpoint หลัง update 200
+- `s2_eval.json` เป็นผลจาก `scripts/stage2_eval.py` จริง มี 192 episodes ต่อกลุ่ม (recoverable/unrecoverable)
+  ต่อ seed; `s2_eval_n48.json` และ trend update 50/100/150 เป็นข้อมูลเสริม ไม่ใช้ตัดสิน gate
+- manifest ทั้งสาม run ระบุ `measured_updates=200`, `hard_push_no_bonus=true`, `anchor_mode=objective`,
+  `anchor_coef=1.0`, `anchor_raw_obs=true`, `max_push_impulse=0.08`, `fall_continue_s=2.5`, `status=complete`
+  และ init/anchor checkpoint เป็น M1 `natural4_r2` ของ seed เดียวกัน
+
+| seed | n recoverable / unrecoverable | รอดกู้ได้ S2 / S1 (%) | damage กู้ไม่ได้ S2 / S1 / passive | FGU (%) | head share (%) | gate |
+|---|---:|---:|---:|---:|---:|---|
+| 63001 | 192 / 192 | 91.7 / 90.6 | 0.001376 / 0.001738 / 0.001917 | 7.47 | 0.000 | ผ่าน |
+| 63002 | 192 / 192 | 96.9 / 96.9 | 0.001669 / 0.002086 / 0.001917 | 2.69 | 0.000060 | ผ่าน |
+| 63003 | 192 / 192 | 88.5 / 85.4 | 0.001579 / 0.001744 / 0.001917 | 9.76 | 0.0201 | ผ่าน |
+
+- ทุก seed ผ่านเงื่อนไข S2 survival ≥ S1 − 5 จุดเปอร์เซ็นต์, damage S2 ต่ำกว่า S1 และ passive,
+  และ false give-up ≤ 10%; seed 63003 อยู่ใกล้ขอบ FGU จึงต้องรายงานตามจริง ไม่สรุปเกินหลักฐาน
+- ค่า `head_damage_share` เป็นสัดส่วนจากไฟล์ผลจริง; ความเสียหายยังเป็น engineering proxy ไม่ใช่การทำนายการบาดเจ็บมนุษย์
+- run ที่ใช้เป็นหลักฐานและอ้างใน milestone: `auto-loop/milestones/m2_summary.json`
+
 นิยาม "กู้ได้" เทียบกับ controller ที่ระบุชัด (policy S1) ไม่ใช่ค่าสัมบูรณ์
 ตามข้อสังเกตในงาน Learning to Predict Humanoid Fall (2011) ที่อ้างไว้ใน prior-art review
 

@@ -308,3 +308,56 @@ Doc diagnostic data: harddamageS2/S1/passive seeds63001=.001488754/.001617183/.0
 - No incorrect conclusions found.
 
 event ดิบ: `auto-loop/.loop/claude/20261009-201926.jsonl`
+
+## 2026-10-10 16:24:40  (exit 0, 123s, $0.48, 8 turns)
+
+**Codex สั่ง:**
+
+``text
+คุณเป็นผู้ช่วยตรวจทานแบบอ่านอย่างเดียวในโปรเจกต์ C:\RL_Fall (WSL checkout ~/RL_Fall) ห้ามแก้ไฟล์ใด ๆ รวมถึง auto-loop/ ยกเว้นไม่ต้องเขียนอะไรเลย ให้ตอบเฉพาะการวิเคราะห์สั้น ๆ
+
+ตรวจว่าการสรุป M2 ต่อไปนี้ถูกต้องตามสัญญาใน auto-loop/GOAL.md หรือไม่ และระบุ blocker ถ้ามี:
+- job 20261010-120730-s2hardnob จบ exit 0 ใช้เวลา 4:11:18
+- endpoint final update_200 คือ s2_eval.json ที่มี n_episodes=192 ทั้ง recoverable และ unrecoverable ต่อ seed
+- seed 63001: recoverable S2/S1=0.9166667/0.90625, unrecoverable damage S2/S1/passive=0.001375657/0.001738218/0.001917013, false_give_up=0.07471264
+- seed 63002: recoverable S2/S1=0.96875/0.96875, unrecoverable damage=0.001668502/0.002086286/0.001917013, false_give_up=0.02688172
+- seed 63003: recoverable S2/S1=0.8854167/0.8541667, unrecoverable damage=0.001579212/0.001744206/0.001917013, false_give_up=0.09756098
+- manifest ทั้งสามระบุ measured_updates=200, hard_push_no_bonus=true, anchor_mode=objective, anchor_coef=1.0, anchor_raw_obs=true, max_push_impulse=0.08, fall_continue_s=2.5, status=complete และ init/anchor checkpoint เป็น M1 natural4_r2 ของ seed เดียวกัน
+
+ตรวจเฉพาะการตีความเกณฑ์และความครบถ้วนของ provenance ห้ามเสนอให้เปลี่ยนเกณฑ์ ห้ามใช้ s2_eval_n48 หรือ trend แทน endpoint และห้ามแก้ไฟล์
+
+``
+
+**Claude ตอบ:**
+
+**สรุป:** ตัวเลข endpoint ผ่านเกณฑ์ M2 ครบทั้ง 3 seeds แต่ M2 ยังไม่ผ่านตามสัญญา เพราะยังไม่มีไฟล์ `auto-loop/milestones/m2_summary.json` ไม่ได้แก้ไฟล์ใด ๆ และไม่ได้ใช้ skill plan-and-report เพราะ skill นั้นต้องเขียนไฟล์
+
+### ตรวจตัวเลขกับเกณฑ์ (GOAL.md:102–105)
+
+| seed | n ≥ 48 | รอดบนแรงที่กู้ได้: S2 ≥ S1 − 0.05 | damage บนแรงที่กู้ไม่ได้: S2 < S1 และ S2 < passive | false give-up ≤ 0.10 |
+|---|---|---|---|---|
+| 63001 | 192/192 ✓ | 0.917 ≥ 0.856 ✓ | 0.001376 < 0.001738, 0.001917 ✓ | 0.0747 ✓ |
+| 63002 | 192/192 ✓ | 0.969 ≥ 0.919 ✓ | 0.001669 < 0.002086, 0.001917 ✓ | 0.0269 ✓ |
+| 63003 | 192/192 ✓ | 0.885 ≥ 0.804 ✓ | 0.001579 < 0.001744, 0.001917 ✓ | 0.0976 ✓ (ห่างเกณฑ์แค่ 0.24 จุด) |
+
+การตีความเกณฑ์ถูกต้อง สิ่งที่ยืนยันเพิ่มได้:
+- **ตัวหารของ false give-up ถูกนิยาม:** 13/174, 5/186 และ 16/164 โดยตัวหารคือจำนวน episode ที่ S1 รอดบนแรงที่กู้ได้ (0.90625×192 = 174 เป็นต้น) ตรงกับนิยาม "S1 กู้ได้แต่ S2 ล้ม"
+- **damage ของ passive เท่ากันทุก seed (0.001917013) สมเหตุสมผล:** baseline แบบปล่อยตัวไม่ขึ้นกับ policy จึงชี้ว่าชุดแรงผลักที่ใช้ประเมินคงที่ข้าม seed
+
+### Provenance ที่ตรวจแล้ว
+- **job:** `duration_s` = 15078 = 4:11:18, `exit_code` = 0, `state` = done ✓
+- **endpoint:** `s2_eval.json` ทั้งสาม seed มี `s2_update`=200, `s1_update`=200, `after_s`=2.5 และ `script`=`scripts/stage2_eval.py` (เขียนโดยสคริปต์ ตรงตามสัญญา) ✓
+- **baseline S1:** `s1_run` ของแต่ละ seed ตรงกับ path ใน `m1_runs.json` (natural4_r2 ของ seed เดียวกัน) ✓
+- **การแบ่งกลุ่มแรงผลัก:** กลุ่มกู้ได้คือ impulse 0.05 และ 0.08 (96+96) กลุ่มกู้ไม่ได้คือ 0.15, 0.20 และ 0.25 (64×3) อย่างละครึ่งตาม M2 และอยู่สองฝั่งของจุด 0.10 จาก M1 ✓
+- **manifest:** ฟิลด์ที่ระบุมา (`hard_push_no_bonus`, `anchor_*`, `max_push_impulse`, `status`) ไม่ได้เปิดดูซ้ำเอง แต่ชื่อโฟลเดอร์ (`push_0.08_…_anc1.0_objective_hardnobonus`) และ `after_s`=2.5 สอดคล้องกัน
+
+### Blockers
+1. **ไม่มี `auto-loop/milestones/m2_summary.json`** ตอนนี้ `goal-status.md` แสดง `FAIL — M2 … m2_summary.json not found` ต้องสร้างไฟล์นี้โดยชี้ `run_dir` และ `eval_file` ไปที่ `s2_eval.json` ที่ root ของ run ทั้งสาม (ไม่ใช่ `s2_eval_n48.json` หรือ `s2_eval_update_*.json`) แล้วรัน `verify.ps1` ใหม่ จนกว่าตัวตรวจจะผ่าน ยังพูดไม่ได้ว่า M2 ผ่าน
+2. **สรุปที่ให้มาขาด `head_damage_share`** M2 กำหนดให้ "รายงานสัดส่วน damage ที่ศีรษะด้วย" ค่ามีอยู่ในไฟล์แล้ว คือ 0.0, 5.95e-07 และ 2.01e-04 แต่สรุปไม่ได้รายงาน
+3. **ยังไม่ได้บันทึกผลลง `planning/Curriculum_Plan_TH.md`** ข้อจำกัดในการทำงานของ GOAL.md กำหนดให้บันทึกทุกผล ข้อนี้เป็นเงื่อนไขของกระบวนการ ไม่ใช่ gate ที่ตัวตรวจเช็ก
+
+ข้อสังเกตที่ไม่ใช่ blocker:
+- **ข้อความใน M2 กับสัญญาไม่ตรงกัน:** M2 เขียนว่า "ไม่ต่ำกว่า S1 อย่างมีนัย" ส่วนสัญญาใช้ S1 − 5 จุด ผลนี้ผ่านทั้งสองแบบ เพราะ S2 ≥ S1 ทุก seed
+- **false give-up ของ 63003 (0.0976) ชิดเกณฑ์มาก** ควรเขียนไว้ใน Evidence Summary ตามหลักรายงานทุก seed อย่างตรงไปตรงมา
+
+event ดิบ: `auto-loop/.loop/claude/20261010-162236.jsonl`

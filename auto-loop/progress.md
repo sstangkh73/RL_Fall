@@ -540,3 +540,22 @@
 - **งานถัดไป:** รอ job; อ่าน `s2_eval.json` (192) final200 ทั้ง 3 seeds เป็น verdict หลัก ตรวจ manifest hard_push_no_bonus=true
   ดู FGU (ความเสี่ยงหลัก: ยอมล้มบน easy), per-part (แขน vs ลำตัว), รัน fall_timing กับ recipe ใหม่ได้ (เพิ่ม TAG ใน run_stage2_fall_timing.sh)
   ผ่านทั้ง 3 → เขียน m2_summary.json ชี้ s2_eval.json (192) ของ run นี้ แล้วเริ่ม M3; ไม่ผ่าน → พิจารณา gae_lambda .99 ของ Codex
+
+### รอบ 2026-10-10 16:27
+- **ตัวนำ:** Codex; งาน M2 ทำโดย Codex, Claude เป็นตัวช่วยรีวิวการตีความ gate แบบอ่านอย่างเดียว
+- **ทำอะไร:** อ่านผล endpoint ของ `20261010-120730-s2hardnob` ทั้ง 3 seed, ตรวจ `s2_eval.json` final200 และ manifest ใน WSL,
+  ตรวจว่า provenance ตรงกับ M1 pinned run ของ seed เดียวกัน และบันทึกผลลง `planning/Curriculum_Plan_TH.md`
+- **job ที่สั่ง:** ไม่มี job ใหม่ในรอบนี้; ไม่มี job กำลังรัน
+- **job ที่จบ:** `20261010-120730-s2hardnob` ใช้จริง **4:11:18 ชม.**, exit 0
+  (เวลาจาก `auto-loop/reports/jobs.md`); endpoint มี 192 recoverable และ 192 unrecoverable episodes ต่อ seed
+- **ผลหลัก:** final200 ผ่าน M2 ครบ 3/3 — recoverable S2/S1 = 91.7/90.6%, 96.9/96.9%, 88.5/85.4%;
+  unrecoverable weighted damage S2/S1/passive = 0.001376/0.001738/0.001917,
+  0.001669/0.002086/0.001917, 0.001579/0.001744/0.001917; false give-up = 7.47%, 2.69%, 9.76%;
+  head share = 0%, 0.000060%, 0.0201% ตามไฟล์ผลจริง
+- **สิ่งที่บันทึก:** สร้าง `auto-loop/milestones/m2_summary.json` ชี้ `s2_eval.json` final200 ของทั้ง 3 seed
+  ไม่ใช้ `s2_eval_n48.json` หรือ trend checkpoint เป็นหลักฐาน
+- **ผล verify:** `pwsh -NoProfile -File auto-loop/verify.ps1` — pytest exit 0; M1 PASS, M2 PASS; M3/M4 ยัง FAIL
+  เพราะยังไม่มี `m3_compute.json` และ `planning/Evidence_Summary_TH.md`; `git diff --check` ผ่าน
+- **ปัญหา:** ไม่มี blocker ทางฟิสิกส์หรือ provenance; FGU seed 63003 อยู่ใกล้ขอบ 10% (9.76%) จึงต้องรายงานตามจริง
+- **งานถัดไป:** M3 — อ่าน compute/throughput จากผลที่ผ่านจริงและไฟล์ Slurm ที่มีอยู่, สร้าง `planning/LANTA_Compute_Estimate_TH.md`
+  กับ `auto-loop/milestones/m3_compute.json` ให้ตัวเลขและ script ตรงกัน แล้ว verify ก่อนเริ่ม M4
