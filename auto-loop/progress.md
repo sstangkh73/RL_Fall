@@ -570,3 +570,13 @@
 - **verify follow-up หลังรับรีวิว:** รัน `pwsh -NoProfile -File auto-loop/verify.ps1` สดอีกครั้งหลังแก้ถ้อยคำ/ตัวเลข — pytest ผ่านทั้งหมด, M1 PASS, M2 PASS, **M3 PASS (node_hours=18)**, M4 ยัง FAIL เฉพาะไฟล์ Evidence Summary ที่ยังไม่มี
 - **ปัญหา:** throughput 12,000 t/s ต่อ LANTA ยังเป็น planning assumption เพราะยัง submit/วัดบน LANTA ไม่ได้; S3 800 updates เป็น planning assumption ไม่ใช่ผลทดลอง. Claude review ตรวจแล้วและแก้ถ้อยคำเรื่องความอนุรักษ์นิยม/upper bound, กรณี throughput ครึ่งหนึ่ง และข้อความ M3 เดิมให้สอดคล้อง
 - **งานถัดไป:** M4 — สร้าง `planning/Evidence_Summary_TH.md` ไม่เกิน 16,000 ตัวอักษร ให้ตัวเลข 3 seeds ตรงกับ M1/M2, ระบุ 18 node-hours, มีแผน S3 และข้อจำกัด damage เป็น proxy; จากนั้น verify สดอีกครั้ง
+
+### รอบ 2026-10-10 16:57
+- **ตัวนำ:** Codex; ตัวช่วย Claude รีวิวเอกสารแบบอ่านอย่างเดียว
+- **ทำอะไร:** สร้าง `planning/Evidence_Summary_TH.md` สำหรับ M4 จาก milestone M1/M2/M3 และ `goal-status.md`; แยกผลที่วัดจริงออกจากสมมติฐาน LANTA, ระบุผลทั้ง 3 seeds, แผน S3 และข้อจำกัดว่า damage เป็น engineering proxy. ปรับถ้อยคำตามรีวิวให้ไม่อ้างเกินหลักฐาน และระบุ `node_hours = 18` ชัดเจน
+- **ใครทำ:** Codex เขียนและตรวจ diff; Claude ตรวจความครบถ้วน/ความสอดคล้องแบบอ่านอย่างเดียว ไม่ได้แก้ไฟล์
+- **job ที่สั่ง:** ไม่มี job ใหม่; ไม่มีงาน train/eval ค้าง
+- **job ที่จบ:** ไม่มีใหม่ในรอบนี้; อ้างเวลาจริงของ job หลักเดิม `20261010-120730-s2hardnob` = 4:11:18 ชม. ตาม `auto-loop/reports/jobs.md`
+- **ผล verify:** `pwsh -NoProfile -File auto-loop/verify.ps1` สด — pytest exit 0 และ goal exit 0; M1 PASS, M2 PASS, M3 PASS (`node_hours=18`), M4 PASS; เอกสารยาว 5,157 ตัวอักษร และ `git diff --check` ผ่าน
+- **ปัญหา:** ไม่มี blocker ของ milestone. ข้อจำกัดที่ยังต้องรายงานคือ throughput LANTA 12,000 t/s และ S3 800 updates เป็นสมมติฐานวางแผน และควรแนบภาพ/วิดีโอ rollout เมื่อทำฉบับนำเสนอจริง
+- **งานถัดไป:** M1–M4 ครบตาม checker; รอการตัดสินใจ/ข้อเสนอแนะจากคนเกี่ยวกับคำขอ LANTA และก่อน submit ต้องวัด throughput ด้วย Slurm benchmark โดยไม่ submit ในรอบนี้

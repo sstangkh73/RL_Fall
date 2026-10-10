@@ -1,4 +1,4 @@
-# Goal status (2026-10-10 16:37:28)
+# Goal status (2026-10-10 16:56:38)
 
 ## PASS — M1 — S1 gate (natural stance + reactive survival, 3 seeds)
 - mean survival at 0.10 = 62%
@@ -14,5 +14,4 @@
 ## PASS — M3 — LANTA compute estimate + Slurm script
 - node_hours = 18
 
-## FAIL — M4 — evidence summary for advisor / LANTA
-- ✗ planning/Evidence_Summary_TH.md not found
+## PASS — M4 — evidence summary for advisor / LANTA
