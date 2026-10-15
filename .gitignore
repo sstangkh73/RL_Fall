@@ -12,3 +12,10 @@ tmp/
 proposal/
 pytest-cache-files-*/
 
+
+results/linux_wsl/
+results/learning_curve_3d/
+results/stage1/
+results/videos/
+results/stage1_v0_3/
+results/stage1_v1_0/

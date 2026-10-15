@@ -1,0 +1,5 @@
+- 2026-10-11 — เขียนรายงานโครงการฉบับเต็ม — Done — [plan](2026-10-11-full-project-report/plan.md) · [report](2026-10-11-full-project-report/report.md)
+- 2026-10-09 — ให้ loop บริหารโควตา Claude/Codex เอง — Done — [plan](2026-10-09-loop-quota-routing/plan.md) · [report](2026-10-09-loop-quota-routing/report.md)
+- 2026-10-09 — เพิ่มคำสั่งดูเครดิต Claude และ Codex — Done — [plan](2026-10-09-loop-credits-view/plan.md) · [report](2026-10-09-loop-credits-view/report.md)
+- 2026-10-08 — verify ตาม GOAL + run-loop ใช้ WSL ไม่จำกัดเวลา — Done — [plan](2026-10-08-loop-full-access-verify/plan.md) · [report](2026-10-08-loop-full-access-verify/report.md)
+- 2026-10-08 — เขียน GOAL.md ของ auto-loop ใหม่ — Done — [plan](2026-10-08-rewrite-loop-goal/plan.md) · [report](2026-10-08-rewrite-loop-goal/report.md)

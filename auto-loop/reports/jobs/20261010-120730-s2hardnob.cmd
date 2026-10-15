@@ -1,0 +1,1 @@
+bash scripts/run_stage2_hardnobonus.sh

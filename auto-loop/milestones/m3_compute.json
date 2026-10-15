@@ -1,0 +1,23 @@
+{
+  "node_hours": 18,
+  "transitions_to_gate": {
+    "S1": 17203200,
+    "S2": 3276800,
+    "S3_planning_assumption": 13107200
+  },
+  "throughput_per_node": 12000,
+  "runs": {
+    "total_training_runs": 56,
+    "S1": 5,
+    "S2": 24,
+    "S3": 27,
+    "evaluation_overhead_fraction": 0.1,
+    "buffer": 1.3,
+    "status": "planning_assumption_until_LANTA_benchmark"
+  },
+  "sbatch": [
+    "scripts/lanta/bench_throughput.sbatch",
+    "scripts/lanta/s1_recipe.sbatch",
+    "scripts/lanta/s2_pilot.sbatch"
+  ]
+}

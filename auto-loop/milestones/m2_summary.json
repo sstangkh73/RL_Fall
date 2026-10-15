@@ -1,0 +1,16 @@
+{
+  "seeds": {
+    "63001": {
+      "run_dir": "results/stage2/seed_63001/push_0.08_hard0.5_posture1.0_s2_dmg10000_anc1.0_objective_hardnobonus/3d_A_env8_subproc_cpu_seed63001_t4_20261010T120739",
+      "eval_file": "results/stage2/seed_63001/push_0.08_hard0.5_posture1.0_s2_dmg10000_anc1.0_objective_hardnobonus/3d_A_env8_subproc_cpu_seed63001_t4_20261010T120739/s2_eval.json"
+    },
+    "63002": {
+      "run_dir": "results/stage2/seed_63002/push_0.08_hard0.5_posture1.0_s2_dmg10000_anc1.0_objective_hardnobonus/3d_A_env8_subproc_cpu_seed63002_t4_20261010T133038",
+      "eval_file": "results/stage2/seed_63002/push_0.08_hard0.5_posture1.0_s2_dmg10000_anc1.0_objective_hardnobonus/3d_A_env8_subproc_cpu_seed63002_t4_20261010T133038/s2_eval.json"
+    },
+    "63003": {
+      "run_dir": "results/stage2/seed_63003/push_0.08_hard0.5_posture1.0_s2_dmg10000_anc1.0_objective_hardnobonus/3d_A_env8_subproc_cpu_seed63003_t4_20261010T145316",
+      "eval_file": "results/stage2/seed_63003/push_0.08_hard0.5_posture1.0_s2_dmg10000_anc1.0_objective_hardnobonus/3d_A_env8_subproc_cpu_seed63003_t4_20261010T145316/s2_eval.json"
+    }
+  }
+}

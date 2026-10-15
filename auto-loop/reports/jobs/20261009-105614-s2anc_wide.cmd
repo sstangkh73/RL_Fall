@@ -1,0 +1,1 @@
+RECOVERABLE_MAX=0.12 ANCHOR_EPOCHS=1 bash scripts/run_stage2_anchor.sh 63001 63002 63003

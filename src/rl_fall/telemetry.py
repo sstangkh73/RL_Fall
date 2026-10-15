@@ -10,6 +10,9 @@ from pathlib import Path
 
 import psutil
 
+# CREATE_NO_WINDOW exists only on Windows; 0 is the POSIX no-op.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 class ResourceSampler:
     def __init__(self, output: Path, interval_seconds: float = 1.0) -> None:
@@ -48,7 +51,7 @@ class ResourceSampler:
         ]
         try:
             output = subprocess.check_output(
-                command, text=True, timeout=2, creationflags=subprocess.CREATE_NO_WINDOW
+                command, text=True, timeout=2, creationflags=NO_WINDOW
             ).strip().splitlines()[0]
             values = [value.strip() for value in output.split(",")]
             parsed = []

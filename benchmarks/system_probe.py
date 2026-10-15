@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import platform
@@ -15,6 +16,9 @@ import psutil
 import stable_baselines3
 import torch
 
+# CREATE_NO_WINDOW exists only on Windows; 0 is the POSIX no-op.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 def gpu_snapshot() -> list[dict[str, str]]:
     fields = ("name", "driver_version", "memory.total", "memory.free",
@@ -22,7 +26,7 @@ def gpu_snapshot() -> list[dict[str, str]]:
     try:
         output = subprocess.check_output(
             ["nvidia-smi", f"--query-gpu={','.join(fields)}", "--format=csv,noheader,nounits"],
-            text=True, timeout=4, creationflags=subprocess.CREATE_NO_WINDOW,
+            text=True, timeout=4, creationflags=NO_WINDOW,
         )
         return [dict(zip(fields, (value.strip() for value in line.split(","))))
                 for line in output.strip().splitlines()]
@@ -31,17 +35,28 @@ def gpu_snapshot() -> list[dict[str, str]]:
 
 
 def cpu_name() -> str | None:
+    if platform.system() == "Linux":
+        try:
+            for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+                if line.startswith("model name"):
+                    return line.split(":", 1)[1].strip()
+        except OSError:
+            pass
+        return None
     try:
         command = ["powershell", "-NoProfile", "-Command",
                    "(Get-ItemProperty -LiteralPath 'HKLM:\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0').ProcessorNameString"]
         return subprocess.check_output(command, text=True, timeout=4,
-                                       creationflags=subprocess.CREATE_NO_WINDOW).strip()
+                                       creationflags=NO_WINDOW).strip()
     except (OSError, subprocess.SubprocessError):
         return None
 
 
 def main() -> None:
-    path = Path("results/benchmark/system_snapshot.json")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", type=Path,
+                        default=Path("results/benchmark/system_snapshot.json"))
+    path = parser.parse_args().output
     path.parent.mkdir(parents=True, exist_ok=True)
     memory = psutil.virtual_memory()
     snapshot = {

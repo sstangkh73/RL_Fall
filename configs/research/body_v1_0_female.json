@@ -1,0 +1,112 @@
+{
+  "name": "v1_0",
+  "description": "SMPL-topology humanoid (24 bodies, 23 x 3 = 69 hinge DoF) with adult-female anthropometry scaled to 1.60 m / 60 kg. Engineering proxy for fall research, not a validated human injury model.",
+  "reference_person": {"stature_m": 1.60, "mass_kg": 60.0, "sex": "female"},
+  "sources": {
+    "deleva": "de Leva P. (1996) Adjustments to Zatsiorsky-Seluyanov's segment inertia parameters. J Biomech 29(9):1223-1230, Table 4 female columns (reference female 61.9 kg, 1.735 m).",
+    "ansur2": "ANSUR II female public data (Gordon et al. 2015, NATICK/TR-15/007); means of the 705 women with stature 1570-1630 mm (tools.openlab.psu.edu/publicData/ANSUR_II_FEMALE_Public.csv).",
+    "harbo2012": "Harbo T, Brincks J, Andersen H (2012) Maximal isokinetic and isometric muscle strength of major muscle groups... Eur J Appl Physiol 112:267-275, Table 5, women < 30 y (25 y, 168 cm, 59 kg).",
+    "rom": "Luttgens & Hamilton (1997) Kinesiology, normal ROM table as reproduced by WikEM 'Range of motion by joint'; ankle uses the common clinical norm dorsiflexion 20 / plantarflexion 50 deg because sources disagree.",
+    "cavanaugh1993": "Cavanaugh et al. 1993 lateral-impact tolerance, 5th-percentile female: shoulder AIS2+ 2.52 kN, thorax/abdomen AIS4+ 2.16 kN, pelvis fracture 5.77 kN (cited in Yoganandan et al., PMC1831543).",
+    "raymond2009": "Raymond et al. 2009 J Biomech, temporo-parietal skull initial fracture tolerance 2346 N (blunt 38 mm impactor).",
+    "patella": "Effect of impact angle on knee tolerance to rigid impacts (PubMed 17096241): oblique knee impacts fractured the patella at 3.5 +/- 1.4 kN.",
+    "foot_ankle": "Funk et al. 2002, axial injury tolerance of the foot/ankle: 50% injury risk 3.7 kN for a 65-year 5th-percentile female.",
+    "distal_radius": "Frykman 1967 quasi-static forearm fracture 2.26 +/- 1.01 kN (n = 48), as compiled in Chiu & Robinovitch 1998 J Biomech (falls on the outstretched hand)."
+  },
+  "scale_from_deleva_female": 0.92219,
+  "landmark_heights_m": {
+    "ankle_joint": 0.065,
+    "hip_joint": 0.8093,
+    "omphalion": 0.9767,
+    "spine_mid": 1.0713,
+    "xyphion": 1.1660,
+    "suprasternale": 1.2974,
+    "neck_base": 1.33,
+    "head_joint": 1.44,
+    "shoulder_joint": 1.270,
+    "vertex": 1.60,
+    "_note": "Segment lengths are de Leva female lengths x 0.92219 (shank KJC-AJC 404.5, thigh 339.8, LPT 167.4, MPT 189.3, UPT 131.4, upper arm 253.7, forearm 243.7, hand WJC-MET3 71.9 mm). Checks against ANSUR II (1.57-1.63 m women): suprasternale 1306.7 vs 1297.4 model, iliocristale 976.5 vs omphalion 976.7, lateral malleolus 62.1 vs ankle 65. Neck base and head joint heights are assumptions placed between suprasternale/cervicale and gonion."
+  },
+  "lateral_offsets_m": {
+    "hip_joint_half_spacing": 0.0875,
+    "shoulder_joint_half_spacing": 0.165,
+    "sternoclavicular_half_spacing": 0.02,
+    "_note": "Hip spacing = 0.5 x ANSUR hip breadth 350 mm / 2 (assumption); shoulder joint 16 mm medial of acromion (ANSUR biacromial 361.6 mm; offset is an assumption)."
+  },
+  "foot": {
+    "length_m": 0.2425, "ball_length_m": 0.1792, "breadth_m": 0.0918, "heel_breadth_m": 0.0664,
+    "heel_to_ankle_m": 0.06,
+    "_note": "ANSUR II foot length, ball-of-foot length, breadths; heel-to-ankle-joint distance is an assumption (~25% of foot length)."
+  },
+  "segments": {
+    "Pelvis":   {"deleva": "LPT (CM 49.20% below OMPH)", "mass_frac": 0.1247, "length_m": 0.1674, "com_frac": 0.5080, "r": [0.433, 0.402, 0.444], "part": "torso", "injury_kN": 5.77, "injury_source": "cavanaugh1993 pelvis"},
+    "Torso":    {"deleva": "MPT/2", "mass_frac": 0.07325, "length_m": 0.0947, "com_frac": 0.5, "r": [0.433, 0.354, 0.415], "part": "torso", "injury_kN": 2.16, "injury_source": "cavanaugh1993 thorax/abdomen"},
+    "Spine":    {"deleva": "MPT/2", "mass_frac": 0.07325, "length_m": 0.0947, "com_frac": 0.5, "r": [0.433, 0.354, 0.415], "part": "torso", "injury_kN": 2.16, "injury_source": "cavanaugh1993 thorax/abdomen"},
+    "Chest":    {"deleva": "UPT minus collars", "mass_frac": 0.1445, "length_m": 0.1314, "com_frac": 0.7923, "r": [0.746, 0.502, 0.718], "part": "torso", "injury_kN": 2.16, "injury_source": "cavanaugh1993 thorax"},
+    "Neck":     {"deleva": "head-neck 10% (assumption)", "mass_frac": 0.00668, "length_m": 0.11, "com_frac": 0.5, "r": [0.3, 0.3, 0.3], "part": "head", "injury_kN": 2.35, "injury_source": "raymond2009 (head value applied)"},
+    "Head":     {"deleva": "head-neck 90%", "mass_frac": 0.06012, "length_m": 0.1846, "com_frac": 0.4106, "r": [0.330, 0.359, 0.318], "part": "head", "injury_kN": 2.35, "injury_source": "raymond2009"},
+    "Thorax":   {"deleva": "from UPT (assumption)", "mass_frac": 0.005, "length_m": 0.145, "com_frac": 0.5, "r": [0.3, 0.3, 0.1], "part": "arm", "injury_kN": 2.52, "injury_source": "cavanaugh1993 shoulder"},
+    "Shoulder": {"deleva": "upper arm", "mass_frac": 0.0255, "length_m": 0.2537, "com_frac": 0.5754, "r": [0.278, 0.260, 0.148], "part": "arm", "injury_kN": 2.52, "injury_source": "cavanaugh1993 shoulder"},
+    "Elbow":    {"deleva": "forearm", "mass_frac": 0.0138, "length_m": 0.2437, "com_frac": 0.4559, "r": [0.261, 0.257, 0.094], "part": "arm", "injury_kN": 2.26, "injury_source": "distal_radius"},
+    "Wrist":    {"deleva": "hand 60% (palm, assumption)", "mass_frac": 0.00336, "length_m": 0.0719, "com_frac": 0.5, "r": [0.531, 0.454, 0.335], "part": "arm", "injury_kN": 2.26, "injury_source": "distal_radius"},
+    "Hand":     {"deleva": "hand 40% (fingers, assumption)", "mass_frac": 0.00224, "length_m": 0.106, "com_frac": 0.4, "r": [0.3, 0.3, 0.1], "part": "arm", "injury_kN": 2.26, "injury_source": "distal_radius"},
+    "Hip":      {"deleva": "thigh", "mass_frac": 0.1478, "length_m": 0.3398, "com_frac": 0.3612, "r": [0.369, 0.364, 0.162], "part": "leg", "injury_kN": 5.77, "injury_source": "cavanaugh1993 pelvis (hip/trochanter contact)"},
+    "Knee":     {"deleva": "shank KJC-AJC", "mass_frac": 0.0481, "length_m": 0.4045, "com_frac": 0.4352, "r": [0.267, 0.263, 0.092], "part": "leg", "injury_kN": 3.5, "injury_source": "patella"},
+    "Ankle":    {"deleva": "foot 80% (assumption)", "mass_frac": 0.01032, "length_m": 0.179, "com_frac": 0.45, "r": [0.299, 0.279, 0.139], "part": "leg", "injury_kN": 3.7, "injury_source": "foot_ankle"},
+    "Toe":      {"deleva": "foot 20% (assumption)", "mass_frac": 0.00258, "length_m": 0.063, "com_frac": 0.5, "r": [0.3, 0.3, 0.3], "part": "leg", "injury_kN": 3.7, "injury_source": "foot_ankle"}
+  },
+  "geometry_m": {
+    "head_ellipsoid": [0.094, 0.074, 0.11],
+    "neck_radius": 0.052,
+    "pelvis_box_half": [0.11, 0.16, 0.08],
+    "waist_box_half": [0.105, 0.148],
+    "chest_box_half": [0.122, 0.133],
+    "collar_radius": 0.03,
+    "upper_arm_radius": 0.045,
+    "forearm_radius": 0.035,
+    "palm_box_half": [0.012, 0.039, 0.036],
+    "finger_radius": 0.012,
+    "thigh_radius": 0.075,
+    "shank_radius": 0.045,
+    "toe_box_half": [0.0315, 0.04, 0.012],
+    "_note": "From ANSUR II (1.57-1.63 m women): head breadth 147.4/length 188.9, neck circumference 327, waist 296.6 x 211.1, chest 266.4 x 244.9, biceps circ. 302, forearm circ. 261, hand breadth 77.5, thigh circ. 609 / lower thigh 395, calf 369 / ankle 213 mm. Collision shapes are simplified; inertia comes from de Leva, not from these shapes."
+  },
+  "joint_rom_deg": {
+    "_axes": "x = about antero-posterior axis (ab/adduction, lateral bend), y = about medio-lateral axis (flexion/extension), z = about the longitudinal axis (rotation). Ranges are given for the LEFT side; the right side mirrors x and z.",
+    "Hip":      {"x": [-20, 40],  "y": [-100, 30],  "z": [-40, 50],  "source": "rom"},
+    "Knee":     {"x": [-3, 3],    "y": [-3, 150],   "z": [-5, 5],    "source": "rom (flexion); x/z small, assumption"},
+    "Ankle":    {"x": [-15, 35],  "y": [-20, 50],   "z": [-20, 20],  "source": "rom (y); inversion/eversion and z assumption"},
+    "Toe":      {"x": [-5, 5],    "y": [-70, 40],   "z": [-5, 5],    "source": "assumption (MTP)"},
+    "Torso":    {"x": [-8.3, 8.3], "y": [-8.3, 16.7], "z": [-10, 10], "source": "rom thoracolumbar (flex 50, ext 25, lat 25, rot 30) split over 3 joints"},
+    "Spine":    {"x": [-8.3, 8.3], "y": [-8.3, 16.7], "z": [-10, 10], "source": "rom thoracolumbar split"},
+    "Chest":    {"x": [-8.3, 8.3], "y": [-8.3, 16.7], "z": [-10, 10], "source": "rom thoracolumbar split"},
+    "Neck":     {"x": [-22.5, 22.5], "y": [-37.5, 30], "z": [-40, 40], "source": "rom cervical (flex 60, ext 75, lat 45, rot 80) split over 2 joints"},
+    "Head":     {"x": [-22.5, 22.5], "y": [-37.5, 30], "z": [-40, 40], "source": "rom cervical split"},
+    "Thorax":   {"x": [-10, 30],  "y": [-15, 15],   "z": [-15, 15],  "source": "assumption (sternoclavicular)"},
+    "Shoulder": {"x": [-50, 180], "y": [-180, 50],  "z": [-90, 90],  "source": "rom"},
+    "Elbow":    {"x": [-3, 3],    "y": [-140, 0],   "z": [-80, 80],  "source": "rom (flexion, pronation/supination)"},
+    "Wrist":    {"x": [-30, 20],  "y": [-60, 60],   "z": [-5, 5],    "source": "rom"},
+    "Hand":     {"x": [-10, 10],  "y": [-30, 90],   "z": [-5, 5],    "source": "assumption (MCP)"}
+  },
+  "torque_limit_Nm": {
+    "_note": "Symmetric clip per axis (the PD actuator clips +/- limit), so the larger of the two directions is used where both exist.",
+    "Hip":      {"x": 100, "y": 151, "z": 40,  "source": "y harbo2012 hip extension isokinetic 151 (flexion isometric 101); x, z assumption"},
+    "Knee":     {"x": 50,  "y": 185, "z": 50,  "source": "y harbo2012 knee extension isometric 185; x, z assumption (stand-in for ligaments)"},
+    "Ankle":    {"x": 40,  "y": 89,  "z": 20,  "source": "y harbo2012 plantarflexion isokinetic 89 (dorsiflexion isometric 29); x, z assumption"},
+    "Toe":      {"x": 5,   "y": 20,  "z": 5,   "source": "assumption"},
+    "Torso":    {"x": 120, "y": 120, "z": 60,  "source": "assumption"},
+    "Spine":    {"x": 120, "y": 120, "z": 60,  "source": "assumption"},
+    "Chest":    {"x": 120, "y": 120, "z": 60,  "source": "assumption"},
+    "Neck":     {"x": 30,  "y": 30,  "z": 20,  "source": "assumption"},
+    "Head":     {"x": 30,  "y": 30,  "z": 20,  "source": "assumption"},
+    "Thorax":   {"x": 40,  "y": 40,  "z": 40,  "source": "assumption"},
+    "Shoulder": {"x": 46,  "y": 46,  "z": 30,  "source": "x harbo2012 shoulder adduction isokinetic 46 (abduction isometric 43); y assumed equal; z assumption"},
+    "Elbow":    {"x": 10,  "y": 30,  "z": 10,  "source": "y harbo2012 elbow flexion isometric 30 (extension 28); x, z assumption"},
+    "Wrist":    {"x": 10,  "y": 15,  "z": 5,   "source": "y harbo2012 wrist flexion isometric 15; x, z assumption"},
+    "Hand":     {"x": 3,   "y": 5,   "z": 3,   "source": "assumption"}
+  },
+  "pd": {
+    "kp_rule": "kp = torque_limit / 0.25 rad (full torque at 0.25 rad error), kd = kp / 20",
+    "_note": "Stiffness rule is an engineering choice; it makes the ankles (2 x 356 Nm/rad) exceed the body's gravitational stiffness (~ m g h = 530 Nm/rad)."
+  }
+}

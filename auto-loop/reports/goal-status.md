@@ -1,0 +1,17 @@
+# Goal status (2026-10-11 00:01:05)
+
+## PASS — M1 — S1 gate (natural stance + reactive survival, 3 seeds)
+- mean survival at 0.10 = 62%
+- seed 63001 (update_200): drift 4.8 cm, CoM drop -0.1 cm, lean 2.2 deg, survive@0.10 42%, step@0.08 61% -> @0.12 82%
+- seed 63002 (update_200): drift 7.3 cm, CoM drop -0.1 cm, lean 5.0 deg, survive@0.10 67%, step@0.08 50% -> @0.12 93%
+- seed 63003 (update_200): drift 4.8 cm, CoM drop 0.2 cm, lean 3.7 deg, survive@0.10 77%, step@0.08 63% -> @0.12 79%
+
+## PASS — M2 — S2 pilot (recover or fall, 3 seeds)
+- seed 63001: recoverable S2 92% vs S1 91%; damage S2 0.00138 / S1 0.00174 / passive 0.00192; false give-up 7%; head share 0%
+- seed 63002: recoverable S2 97% vs S1 97%; damage S2 0.00167 / S1 0.00209 / passive 0.00192; false give-up 3%; head share 0%
+- seed 63003: recoverable S2 89% vs S1 85%; damage S2 0.00158 / S1 0.00174 / passive 0.00192; false give-up 10%; head share 0%
+
+## PASS — M3 — LANTA compute estimate + Slurm script
+- node_hours = 18
+
+## PASS — M4 — evidence summary for advisor / LANTA
